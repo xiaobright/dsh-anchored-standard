@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { apply, name, inject } from '../preset/custom-bash.mjs'
+import { apply, inject, name, pickWindowsBash, resolveDefaultBash } from '../preset/custom-bash.mjs'
 
 function register(config) {
   const registered = []
@@ -125,7 +125,7 @@ test('missing output readers degrade to the exit code text', async () => {
   assert.match(result.text, /exit code: 0/)
 })
 
-test('the default bashPath falls back to `bash` on PATH', async () => {
+test('without config the executable is detected on Windows or falls back to `bash`', async () => {
   const resolved = []
   const registered = []
   const ctx = {
@@ -137,5 +137,47 @@ test('the default bashPath falls back to `bash` on PATH', async () => {
   }
   apply(ctx)
   await registered[0].execute({ command: 'x' }, exec())
-  assert.deepEqual(resolved, ['bash'])
+  assert.equal(resolved.length, 1)
+  const chosen = resolved[0]
+  if (chosen !== 'bash') {
+    assert.match(chosen.toLowerCase(), /bash\.exe$/, 'the auto-detected Windows executable is a bash.exe path (issue #28)')
+  }
+})
+
+test('pickWindowsBash prefers a Git-installed bash over other non-system bash and the WSL shim', () => {
+  const existing = new Set([
+    'C:\\Users\\me\\scoop\\shims\\bash.exe',
+    'C:\\Windows\\System32\\bash.exe',
+    'C:\\Program Files\\Git\\bin\\bash.exe',
+  ])
+  const exists = (p) => existing.has(p)
+  const pathEnv = 'C:\\Windows\\System32;C:\\Users\\me\\scoop\\shims;C:\\Program Files\\Git\\bin'
+  assert.equal(
+    pickWindowsBash(pathEnv, 'C:\\Windows', exists),
+    'C:\\Program Files\\Git\\bin\\bash.exe',
+  )
+})
+
+test('pickWindowsBash prefers any non-system bash over the WSL shim (scoop installs)', () => {
+  const exists = (p) => p === 'C:\\Users\\me\\scoop\\shims\\bash.exe' || p === 'C:\\Windows\\System32\\bash.exe'
+  const pathEnv = 'C:\\Windows\\System32;C:\\Users\\me\\scoop\\shims'
+  assert.equal(pickWindowsBash(pathEnv, 'C:\\Windows', exists), 'C:\\Users\\me\\scoop\\shims\\bash.exe')
+})
+
+test('pickWindowsBash falls back to the WSL shim when it is the only bash', () => {
+  const exists = (p) => p === 'C:\\Windows\\System32\\bash.exe'
+  assert.equal(pickWindowsBash('C:\\Windows\\System32;C:\\elsewhere', 'C:\\Windows', exists), 'C:\\Windows\\System32\\bash.exe')
+})
+
+test('pickWindowsBash tolerates quoted entries and returns undefined when nothing exists', () => {
+  const exists = (p) => p === 'D:\\tools\\bash.exe'
+  assert.equal(pickWindowsBash('"D:\\tools";', 'C:\\Windows', exists), 'D:\\tools\\bash.exe')
+  assert.equal(pickWindowsBash('C:\\a;C:\\b', 'C:\\Windows', () => false), undefined)
+})
+
+test('resolveDefaultBash honors the explicit config, detects on win32, and falls back to bash', () => {
+  assert.equal(resolveDefaultBash('C:\\custom\\bash.exe', 'win32', '', 'C:\\Windows', () => false), 'C:\\custom\\bash.exe')
+  assert.equal(resolveDefaultBash(undefined, 'win32', 'C:\\x', 'C:\\Windows', () => true), 'C:\\x\\bash.exe')
+  assert.equal(resolveDefaultBash(undefined, 'win32', 'C:\\x', 'C:\\Windows', () => false), 'bash')
+  assert.equal(resolveDefaultBash(undefined, 'linux', 'C:\\x', 'C:\\Windows', () => true), 'bash')
 })

@@ -162,15 +162,15 @@
 # Windows-only `bash` tool (see preset/custom-bash.mjs): registers the SAME
 # tool name as the persistent shell with a Minimal-compatible description, but
 # executes through the ordinary cross-platform subprocess seam (`bash -c`)
-# instead of a PTY. `bashPath` defaults to `bash` on PATH; point it at Git
-# Bash explicitly when the WSL shim would otherwise be picked up. No OS
-# sandbox confinement on Windows (landlock is linux-only); the tool
-# description says so.
+# instead of a PTY. With no `bashPath` config the plugin auto-detects bash.exe
+# on Windows: a PATH scan preferring a Git-installed bash, any non-system
+# bash next (scoop/chocolatey/portable installs), and the WSL shim only as a
+# last resort. Pin `bashPath` to an absolute path to override. No OS sandbox
+# confinement on Windows (landlock is linux-only); the tool description says
+# so.
 - id: custom-bash
   name: ./custom-bash.mjs
   disabled: !!js process.platform !== 'win32'
-  config:
-    bashPath: 'C:\Program Files\Git\bin\bash.exe'
 
 # ── filesystem ──────────────────────────────────────────────────────────────
 
