@@ -94,3 +94,51 @@ test('a session header without delegationDepth is treated as top-level', () => {
   const s = session([], {})
   assert.equal(promotion.status({ session: s }).promoted, false)
 })
+
+test('forked sessions ignore inherited parent events below seedLength on cold scan', () => {
+  const promotion = createEpochPromotion(['tool/call', 'assistant/message'])
+  const forked = {
+    id: 'forked',
+    header: { seedLength: 1 },
+    events: [
+      { seq: 0, type: 'assistant/message', data: {} },
+      { seq: 1, type: 'tool/call', data: {} },
+    ],
+  }
+  const status = promotion.status({ session: forked })
+  assert.equal(status.promoted, true)
+  assert.equal(status.boundary, -1)
+})
+
+test('forked sessions ignore inherited parent events below seedLength incrementally', () => {
+  const promotion = createEpochPromotion(['assistant/message'])
+  const forked = { id: 'forked', header: { seedLength: 2 }, events: [] }
+  assert.equal(promotion.status({ session: forked }).promoted, false)
+  promotion.observe(forked, { seq: 1, type: 'assistant/message', data: {} })
+  assert.equal(promotion.status({ session: forked }).promoted, false)
+  promotion.observe(forked, { seq: 2, type: 'assistant/message', data: {} })
+  assert.equal(promotion.status({ session: forked }).promoted, true)
+})
+
+test('a compaction inherited from the parent below seedLength is ignored', () => {
+  const promotion = createEpochPromotion(['assistant/message'])
+  const forked = {
+    id: 'forked',
+    header: { seedLength: 2 },
+    events: [
+      { seq: 0, type: 'assistant/message', data: {} },
+      { seq: 1, type: 'compaction/end' },
+    ],
+  }
+  const status = promotion.status({ session: forked })
+  assert.equal(status.promoted, false)
+  assert.equal(status.boundary, -1)
+})
+
+test('promotion state is keyed by session object, not session id', () => {
+  const promotion = createEpochPromotion(['assistant/message'])
+  const promoted = { id: 'same-id', events: [{ type: 'assistant/message' }], header: {} }
+  const fresh = { id: 'same-id', events: [], header: {} }
+  assert.equal(promotion.status({ session: promoted }).promoted, true)
+  assert.equal(promotion.status({ session: fresh }).promoted, false)
+})

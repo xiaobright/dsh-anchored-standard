@@ -10,6 +10,6 @@
   },
   "scripts": {
     "test": "node --test",
-    "check": "node --check preset/tool-bootstrap.mjs && node --test"
+    "check": "node --check preset/tool-bootstrap.mjs && node --check zero-anchored-standard/context-defer.mjs && node --check preset/gitbash-executor.mjs && node --check preset/gitbash-tool.mjs && node --check preset/msys-path-bridge.mjs && node --test"
   }
 }

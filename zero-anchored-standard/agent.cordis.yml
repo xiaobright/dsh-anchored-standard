@@ -19,6 +19,19 @@
 # pool instances — `provide()` throws on the second registration under the
 # same realm symbol; labels join REALMS, and are not what this file needs.)
 
+# ── bootstrap context (must stay FIRST) ─────────────────────────────────────
+
+# Re-queues configured plugin recall messages until the same assistant-message
+# promotion the zero anchor uses. Does NOT touch tools, output budget, or the
+# skill/instruction strip — the zero-tool bootstrap owns those concerns.
+- id: context-defer
+  name: ./context-defer.mjs
+  config:
+    promoteOn: assistant-message
+    # Ship empty: deployments add their own recall providers here, for example
+    # { kind: plugin, plugin: 'your-memory-plugin', form: recall }.
+    deferSources: []
+
 # ── identity ────────────────────────────────────────────────────────────────
 
 # Keep this text byte-identical to the Minimal preset. `complete` prevents the
@@ -102,17 +115,34 @@
   name: '@deepseek-ai/dsh-tool-pwsh'
   disabled: !!js process.platform !== 'win32'
 
-# Windows-only `bash` tool (see preset/custom-bash.mjs): the official bash
-# needs a PTY, and DSH's PTY backend is linux/darwin-only. This row presents
-# the SAME tool name (`bash`) with a Minimal-compatible description but spawns
-# Git Bash through the ordinary cross-platform subprocess seam. `bashPath`
-# defaults to `bash` on PATH; point it at Git Bash explicitly when the WSL
-# shim would otherwise be picked up.
-- id: custom-bash
-  name: ../preset/custom-bash.mjs
+# Windows Git Bash shell group: shared gitbash executor + Minimal-surface bash.
+- id: gitbash-shell
+  name: cordis:group
+  group: true
   disabled: !!js process.platform !== 'win32'
+  isolate:
+    shell: true
   config:
-    bashPath: 'C:\Program Files\Git\bin\bash.exe'
+    - id: gitbash-executor
+      name: ../preset/gitbash-executor.mjs
+      config:
+        timeoutMs: 120000
+        maxTimeoutMs: 600000
+        maxOutputBytes: 64000
+        maxSpillBytes: 67108864
+        graceMs: 3000
+
+    - id: tool-gitbash
+      name: ../preset/gitbash-tool.mjs
+      config:
+        timeoutMs: 120000
+        maxOutputBytes: 64000
+
+# Windows-only MSYS path bridge for host file tools and the bootstrap editor.
+- id: msys-path-bridge
+  name: ../preset/msys-path-bridge.mjs
+  config:
+    tools: [read, write, edit, grep, glob, read_image, str_replace_editor]
 
 # ── filesystem ──────────────────────────────────────────────────────────────
 
