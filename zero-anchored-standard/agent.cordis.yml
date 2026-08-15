@@ -39,7 +39,7 @@
 # exist; read them before acting" — and the model reads the files itself via
 # the filesystem tools when relevant.
 - id: instruction-hint
-  name: ../preset/instruction-hint.mjs
+  name: ./instruction-hint.mjs
   config:
     promoteOn: assistant-message
 
@@ -48,7 +48,7 @@
 # (web_search, subagent, workflow, …) are unlocked on demand via
 # dev_tool_search.
 - id: dev-tool-search
-  name: ../preset/dev-tool-search.mjs
+  name: ./dev-tool-search.mjs
 
 # V4 Pro conditions strongly on the API tool catalog. The first top-level
 # model request therefore carries ZERO tools: `anchor-turn` seeds a fixed user
@@ -109,7 +109,7 @@
 # defaults to `bash` on PATH; point it at Git Bash explicitly when the WSL
 # shim would otherwise be picked up.
 - id: custom-bash
-  name: ../preset/custom-bash.mjs
+  name: ./custom-bash.mjs
   disabled: !!js process.platform !== 'win32'
   config:
     bashPath: 'C:\Program Files\Git\bin\bash.exe'
@@ -175,7 +175,7 @@
   name: '@deepseek-ai/dsh-skill-filesystem'
 
 - id: skill-search
-  name: ../preset/skill-search.mjs
+  name: ./skill-search.mjs
 
 # ── goals ───────────────────────────────────────────────────────────────────
 

@@ -45,7 +45,7 @@
  *    so a bug can never brick every request of a session.
  */
 
-import { createEpochPromotion } from '../preset/compaction-epoch.mjs'
+import { createEpochPromotion } from './compaction-epoch.mjs'
 
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'zero-tool-bootstrap'
