@@ -83,11 +83,19 @@ function sourceList(value, field, fallback) {
   return new Set(value)
 }
 
+/** Promoted catalog mode: resident by default, `full` restores the full dump. */
+function parsePromotedCatalog(value) {
+  if (value === undefined || value === 'resident') return 'resident'
+  if (value === 'full') return 'full'
+  throw new TypeError(`${name}: promotedCatalog must be "resident" or "full"; got ${JSON.stringify(value)}`)
+}
+
 /** Register the per-session bootstrap filters. */
 export function apply(ctx, config) {
   // Core work set exposed after a compaction, before re-promotion.
   const compactionTools = stringListOrEmpty(config?.compactionTools, 'compactionTools')
   const suppressedSources = sourceList(config?.suppressedContextSources, 'suppressedContextSources', DEFAULT_SUPPRESSED_SOURCES)
+  const promotedCatalog = parsePromotedCatalog(config?.promotedCatalog)
 
   const promotion = createEpochPromotion(['assistant/message'])
   ctx.on('session/event', (session, event) => promotion.observe(session, event))
@@ -147,10 +155,12 @@ function ownedEvents(session) {
     try {
       const status = promotion.status(context.agent)
       if (status.promoted) {
-        // PROMOTED: keep the minimal resident set — the shells +
+        // `promotedCatalog: full` restores the previous full-dump behavior;
+        // the default keeps the minimal resident set — the shells +
         // str_replace_editor + the discovery tools + whatever the model
         // explicitly unlocked via dev_tool_search — instead of dumping the
         // whole Standard catalog at once (the post-promotion regression fix).
+        if (promotedCatalog === 'full') return assembled
         const available = new Set(assembled.tools.map((tool) => tool.name))
         const keep = new Set([
           ...SHELLS.filter((name) => available.has(name)),

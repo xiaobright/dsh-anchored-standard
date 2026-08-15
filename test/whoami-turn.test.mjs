@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { ANCHOR_TEXT, apply, name } from '../whoami-standard/whoami-turn.mjs'
+import { apply as applyZeroBootstrap, name as zeroBootstrapName } from '../whoami-standard/zero-tool-bootstrap.mjs'
 
 function register(config = {}) {
   let listener
@@ -73,4 +74,30 @@ test('subagents are never anchored', () => {
   const { subject, prepends } = agent({ depth: 1 })
   listener({ agent: subject, message: { source: { kind: 'user' } } })
   assert.equal(prepends.length, 0)
+})
+
+test('whoami zero-tool bootstrap supports promotedCatalog: full', async () => {
+  assert.equal(zeroBootstrapName, 'zero-tool-bootstrap')
+  const listeners = {}
+  const ctx = {
+    on(event, callback) {
+      listeners[event] = callback
+    },
+    logger: { warn() {} },
+  }
+  applyZeroBootstrap(ctx, { promotedCatalog: 'full' })
+  const tools = [{ name: 'bash' }, { name: 'read' }, { name: 'edit' }]
+  const first = await listeners['system-prompt/assemble'](
+    undefined,
+    { agent: { session: { id: 's', events: [], header: {} } } },
+    async () => ({ system: 'minimal persona', tools }),
+  )
+  assert.deepEqual(first.tools, [])
+  const promoted = await listeners['system-prompt/assemble'](
+    undefined,
+    { agent: { session: { id: 's2', events: [{ type: 'assistant/message' }], header: {} } } },
+    async () => ({ system: 'minimal persona', tools }),
+  )
+  assert.deepEqual(promoted.tools, tools)
+  assert.throws(() => applyZeroBootstrap({ ...ctx, on() {} }, { promotedCatalog: 'bogus' }), /promotedCatalog/)
 })

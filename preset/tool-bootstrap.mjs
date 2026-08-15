@@ -113,7 +113,7 @@ const PROMOTE_EVENTS = {
 }
 
 /** Every config key this plugin accepts — anything else is a typo. */
-const ALLOWED_KEYS = new Set(['bootstrapTools', 'promoteOn', 'bootstrapMaxTokens', 'suppressedContextSources', 'compactionTools'])
+const ALLOWED_KEYS = new Set(['bootstrapTools', 'promoteOn', 'bootstrapMaxTokens', 'suppressedContextSources', 'compactionTools', 'promotedCatalog'])
 
 /**
  * Context sources stripped from the first request by default. Both are
@@ -150,6 +150,13 @@ function parsePromoteOn(value) {
   if (value === undefined || value === 'either') return PROMOTE_EVENTS.either
   if (value === 'tool-call' || value === 'assistant-message') return PROMOTE_EVENTS[value]
   throw new TypeError(`${name}: promoteOn must be one of "tool-call", "assistant-message", "either"; got ${JSON.stringify(value)}`)
+}
+
+/** Promoted catalog mode: resident by default, `full` restores the full dump. */
+function parsePromotedCatalog(value) {
+  if (value === undefined || value === 'resident') return 'resident'
+  if (value === 'full') return 'full'
+  throw new TypeError(`${name}: promotedCatalog must be "resident" or "full"; got ${JSON.stringify(value)}`)
 }
 
 /**
@@ -199,6 +206,7 @@ export function apply(ctx, config) {
   // means "no compaction recovery catalog": the session stays on the
   // bootstrap pair until a new promotion signal.
   const compactionTools = stringListOrEmpty(source.compactionTools, 'compactionTools')
+  const promotedCatalog = parsePromotedCatalog(source.promotedCatalog)
 
   const promotion = createEpochPromotion(promoteEvents)
   ctx.on('session/event', (session, event) => promotion.observe(session, event))
@@ -275,10 +283,12 @@ function ownedEvents(session) {
     try {
       const status = promotion.status(context.agent)
       if (status.promoted) {
-        // PROMOTED: keep the minimal resident set — the bootstrap pair + the
-        // discovery tools + whatever the model explicitly unlocked via
+        // `promotedCatalog: full` restores the previous full-dump behavior;
+        // the default keeps the minimal resident set — the bootstrap pair +
+        // the discovery tools + whatever the model explicitly unlocked via
         // dev_tool_search — instead of dumping the whole Standard catalog at
         // once (the post-promotion regression fix; see the header note).
+        if (promotedCatalog === 'full') return assembled
         const keep = new Set([...bootstrapTools, ...RESIDENT_DISCOVERY_TOOLS, ...unlockedFor(context.agent?.session)])
         return keepTools(assembled, keep, false)
       }

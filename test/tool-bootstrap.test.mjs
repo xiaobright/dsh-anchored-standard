@@ -374,6 +374,27 @@ test('unknown config keys reject at apply time', () => {
   assert.throws(() => register([]), /config must be an object/)
 })
 
+test('promotedCatalog: full restores the complete catalog after promotion', async () => {
+  const { listeners } = register({ ...config, promotedCatalog: 'full' })
+  const tools = [
+    { name: 'bash' }, { name: 'str_replace_editor' },
+    { name: 'dev_tool_search' }, { name: 'skill_search' }, { name: 'skill_load' },
+    { name: 'read' }, { name: 'edit' }, { name: 'web_search' },
+  ]
+  const first = await assemble(listeners['system-prompt/assemble'], [], tools, 'first')
+  assert.deepEqual(first.tools.map((tool) => tool.name), ['bash', 'str_replace_editor'])
+  const promoted = await assemble(listeners['system-prompt/assemble'], [{ type: 'assistant/message', data: {} }], tools, 'promoted')
+  assert.deepEqual(promoted.tools, tools)
+})
+
+test('promotedCatalog defaults to resident and rejects invalid values', async () => {
+  const { listeners } = register()
+  const tools = [{ name: 'bash' }, { name: 'str_replace_editor' }, { name: 'read' }]
+  const promoted = await assemble(listeners['system-prompt/assemble'], [{ type: 'tool/call' }], tools)
+  assert.deepEqual(promoted.tools.map((tool) => tool.name), ['bash', 'str_replace_editor'])
+  assert.throws(() => register({ ...config, promotedCatalog: 'bogus' }), /promotedCatalog/)
+})
+
 test('forked sessions ignore inherited promotion and unlock events below seedLength', async () => {
   const { listeners } = register()
   const tools = [

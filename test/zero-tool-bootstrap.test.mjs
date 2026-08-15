@@ -218,6 +218,23 @@ test('invalid compactionTools values fail at apply time', () => {
   assert.throws(() => register({ compactionTools: ['read', 42] }), /compactionTools/)
 })
 
+test('promotedCatalog: full restores the complete catalog after promotion', async () => {
+  const { listeners } = register({ promotedCatalog: 'full' })
+  const tools = [{ name: 'bash' }, { name: 'read' }, { name: 'edit' }, { name: 'web_search' }]
+  const first = await assemble(listeners['system-prompt/assemble'], [], tools, {}, 'first')
+  assert.deepEqual(first.tools, [])
+  const promoted = await assemble(listeners['system-prompt/assemble'], [{ type: 'assistant/message', data: {} }], tools, {}, 'promoted')
+  assert.deepEqual(promoted.tools, tools)
+})
+
+test('promotedCatalog defaults to resident and rejects invalid values', async () => {
+  const { listeners } = register()
+  const tools = [{ name: 'bash' }, { name: 'read' }]
+  const promoted = await assemble(listeners['system-prompt/assemble'], [{ type: 'assistant/message' }], tools)
+  assert.deepEqual(promoted.tools.map((tool) => tool.name), ['bash'])
+  assert.throws(() => register({ promotedCatalog: 'bogus' }), /promotedCatalog/)
+})
+
 test('forked sessions ignore inherited promotion and unlock events below seedLength', async () => {
   const { listeners } = register()
   const tools = [
