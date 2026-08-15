@@ -5,9 +5,11 @@ import { apply, name } from '../preset/dev-tool-search.mjs'
 
 function register(schemas = []) {
   const registered = []
+  const calls = []
   const ctx = {
     tools: {
-      schemas() {
+      schemas(scope) {
+        calls.push(scope)
         return schemas
       },
       register(tool) {
@@ -16,7 +18,7 @@ function register(schemas = []) {
     },
   }
   apply(ctx)
-  return { registered, ctx }
+  return { registered, ctx, calls }
 }
 
 const exec = (args) => ({ agent: { session: { id: 's', header: {} } }, signal: undefined, ...args })
@@ -75,4 +77,13 @@ test('a throwing catalog search degrades to a message, never throws', async () =
   apply(spy)
   const result = await spy.tools.registered.execute({ query: 'web' }, exec())
   assert.match(result.text, /catalog search unavailable/)
+})
+
+test('search scopes the catalog to the calling agent (rc.6 scope-layered registry)', async () => {
+  const agent = { session: { id: 's', header: {} } }
+  const { registered, calls } = register([{ name: 'subagent', description: 'delegate work' }])
+  const tool = registered.find((t) => t.name === 'dev_tool_search')
+  const result = await tool.execute({ query: 'subagent' }, exec({ agent }))
+  assert.match(result.text, /subagent/)
+  assert.equal(calls.at(-1), agent)
 })

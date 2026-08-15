@@ -80,7 +80,7 @@ export function apply(ctx) {
       schema: { type: 'object', additionalProperties: false, properties: { text: { type: 'string' } }, required: ['text'] },
       render: (_a, v) => [{ type: 'text', text: v.text }],
     },
-    async execute(args) {
+    async execute(args, exec) {
       const query = typeof args.query === 'string' ? args.query.trim() : ''
       const unlock = Array.isArray(args.toolNames) ? args.toolNames.filter((name) => typeof name === 'string' && name.length > 0) : []
 
@@ -97,7 +97,7 @@ export function apply(ctx) {
       }
 
       try {
-        const schemas = ctx.tools.schemas()
+        const schemas = ctx.tools.schemas(exec?.agent)
         const wanted = query.toLowerCase().split(/[^a-z0-9_]+/).filter(Boolean)
         const matches = schemas
           .filter((schema) => {
