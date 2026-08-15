@@ -19,6 +19,19 @@
 # pool instances — `provide()` throws on the second registration under the
 # same realm symbol; labels join REALMS, and are not what this file needs.)
 
+# ── bootstrap context (must stay FIRST) ─────────────────────────────────────
+
+# Re-queues configured plugin recall messages until the same assistant-message
+# promotion the zero anchor uses. Does NOT touch tools, output budget, or the
+# skill/instruction strip — the zero-tool bootstrap owns those concerns.
+- id: context-defer
+  name: ./context-defer.mjs
+  config:
+    promoteOn: assistant-message
+    # Ship empty: deployments add their own recall providers here, for example
+    # { kind: plugin, plugin: 'your-memory-plugin', form: recall }.
+    deferSources: []
+
 # ── identity ────────────────────────────────────────────────────────────────
 
 # Keep this text byte-identical to the Minimal preset. `complete` prevents the

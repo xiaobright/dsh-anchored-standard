@@ -113,7 +113,7 @@ const PROMOTE_EVENTS = {
 }
 
 /** Every config key this plugin accepts — anything else is a typo. */
-const ALLOWED_KEYS = new Set(['bootstrapTools', 'promoteOn', 'bootstrapMaxTokens', 'suppressedContextSources', 'compactionTools', 'promotedCatalog'])
+const ALLOWED_KEYS = new Set(['bootstrapTools', 'promoteOn', 'bootstrapMaxTokens', 'suppressedContextSources', 'compactionTools', 'promotedCatalog', 'deferSources'])
 
 /**
  * Context sources stripped from the first request by default. Both are
@@ -186,6 +186,45 @@ function optionalPositiveInt(value, field) {
   return value
 }
 
+function sourceMatcherList(value, field) {
+  if (value === undefined || (Array.isArray(value) && value.length === 0)) return []
+  if (!Array.isArray(value)) {
+    throw new TypeError(`${name}: ${field} must be an array of source matchers`)
+  }
+  return value.map((item, index) => {
+    const at = `${field}[${index}]`
+    if (typeof item === 'string') {
+      if (item.length === 0) throw new TypeError(`${name}: ${at} kind must be a non-empty string`)
+      return { kind: item }
+    }
+    if (item === null || typeof item !== 'object') {
+      throw new TypeError(`${name}: ${at} must be a source kind string or a { kind, plugin?, form? } object`)
+    }
+    if (typeof item.kind !== 'string' || item.kind.length === 0) {
+      throw new TypeError(`${name}: ${at}.kind must be a non-empty string`)
+    }
+    const matcher = { kind: item.kind }
+    for (const key of ['plugin', 'form']) {
+      if (item[key] === undefined) continue
+      if (typeof item[key] !== 'string' || item[key].length === 0) {
+        throw new TypeError(`${name}: ${at}.${key} must be a non-empty string`)
+      }
+      matcher[key] = item[key]
+    }
+    return matcher
+  })
+}
+
+function matchesDeferredSource(message, matchers) {
+  const source = message?.source
+  if (source === undefined) return false
+  return matchers.some(matcher =>
+    source.kind === matcher.kind
+    && (matcher.plugin === undefined || source.plugin === matcher.plugin)
+    && (matcher.form === undefined || source.form === matcher.form),
+  )
+}
+
 /** Register the per-session bootstrap filters. */
 export function apply(ctx, config) {
   const source = config === undefined ? {} : config
@@ -207,6 +246,7 @@ export function apply(ctx, config) {
   // bootstrap pair until a new promotion signal.
   const compactionTools = stringListOrEmpty(source.compactionTools, 'compactionTools')
   const promotedCatalog = parsePromotedCatalog(source.promotedCatalog)
+  const deferredSources = sourceMatcherList(source.deferSources, 'deferSources')
 
   const promotion = createEpochPromotion(promoteEvents)
   ctx.on('session/event', (session, event) => promotion.observe(session, event))
@@ -228,18 +268,18 @@ export function apply(ctx, config) {
    * them. The event's `arguments` is the raw JSON string the model produced;
    * we parse it defensively and read the `toolNames` array.
    */
-/**
- * Events this session produced itself. `header.seedLength` is the durable
- * fork-lineage boundary: forked sessions replay parent history below that seq,
- * so only events at or after it count toward THIS session's anchors/unlocks.
- */
-function ownedEvents(session) {
-  const events = session?.events
-  if (events === undefined) return []
-  const seedLength = Number(session.header?.seedLength ?? 0)
-  if (seedLength <= 0) return events
-  return events.filter(event => event.seq === undefined || event.seq >= seedLength)
-}
+  /**
+   * Events this session produced itself. `header.seedLength` is the durable
+   * fork-lineage boundary: forked sessions replay parent history below that
+   * seq, so only events at or after it count toward THIS session's unlocks.
+   */
+  const ownedEvents = (session) => {
+    const events = session?.events
+    if (events === undefined) return []
+    const seedLength = Number(session.header?.seedLength ?? 0)
+    if (seedLength <= 0) return events
+    return events.filter(event => event.seq === undefined || event.seq >= seedLength)
+  }
 
   const unlockedFor = (session) => {
     const unlocked = new Set()
@@ -345,13 +385,37 @@ function ownedEvents(session) {
     const decision = await next()
     if (decision.kind === 'reject') return decision
     try {
-      if (promotion.status(agent).promoted || suppressedSources.size === 0) return decision
+      if (promotion.status(agent).promoted) return decision
       if (!Array.isArray(decision.messages)) return decision
-      const kept = decision.messages.filter((message) => {
-        const kind = message?.source?.kind
-        return typeof kind !== 'string' || !suppressedSources.has(kind)
-      })
-      return kept.length === decision.messages.length ? decision : { ...decision, messages: kept }
+      const original = decision.messages
+
+      let messages = original
+      if (suppressedSources.size > 0) {
+        const kept = messages.filter((message) => {
+          const kind = message?.source?.kind
+          return typeof kind !== 'string' || !suppressedSources.has(kind)
+        })
+        if (kept.length < messages.length) messages = kept
+      }
+
+      // Re-queue configured plugin recall injections (memory / document
+      // knowledge providers) for the NEXT step instead of polluting request #1. If the
+      // deferred messages are the only remaining input, admit them unchanged
+      // so the step loop cannot deadlock.
+      const deferred = messages.filter((message) => matchesDeferredSource(message, deferredSources))
+      if (deferred.length > 0) {
+        const kept = messages.filter((message) => !deferred.includes(message))
+        if (kept.length === 0) {
+          messages = messages
+        } else {
+          for (const message of deferred.toReversed()) {
+            agent.inbox.prepend('next-step', message)
+          }
+          messages = kept
+        }
+      }
+
+      return messages.length === original.length ? decision : { ...decision, messages }
     } catch (error) {
       // A filter bug must never eat context: degrade to keeping every message.
       warnOnce(`${name}: pre-step context filter failed, keeping injected context: ${String((error && error.message) || error)}`)

@@ -374,25 +374,38 @@ test('unknown config keys reject at apply time', () => {
   assert.throws(() => register([]), /config must be an object/)
 })
 
-test('promotedCatalog: full restores the complete catalog after promotion', async () => {
-  const { listeners } = register({ ...config, promotedCatalog: 'full' })
-  const tools = [
-    { name: 'bash' }, { name: 'str_replace_editor' },
-    { name: 'dev_tool_search' }, { name: 'skill_search' }, { name: 'skill_load' },
-    { name: 'read' }, { name: 'edit' }, { name: 'web_search' },
-  ]
-  const first = await assemble(listeners['system-prompt/assemble'], [], tools, 'first')
-  assert.deepEqual(first.tools.map((tool) => tool.name), ['bash', 'str_replace_editor'])
-  const promoted = await assemble(listeners['system-prompt/assemble'], [{ type: 'assistant/message', data: {} }], tools, 'promoted')
-  assert.deepEqual(promoted.tools, tools)
+test('deferSources re-queues matching plugin recalls until promotion', async () => {
+  const { listeners } = register({
+    ...config,
+    deferSources: [{ kind: 'plugin', plugin: 'example.recall-provider', form: 'recall' }],
+  })
+  const recall = { id: 'r', source: { kind: 'plugin', plugin: 'example.recall-provider', form: 'recall' } }
+  const session = { id: 'defer', events: [], header: {} }
+  const prepends = []
+  const agent = { session, inbox: { prepend(target, message) { prepends.push({ target, message }) } } }
+  const first = await listeners['agent/pre-step']({ agent }, async () => ({ kind: 'enter', messages: [userMessage, recall] }))
+  assert.deepEqual(first.messages, [userMessage])
+  assert.deepEqual(prepends.map((entry) => entry.target), ['next-step'])
+  assert.deepEqual(prepends.map((entry) => entry.message), [recall])
+
+  const promotionEvent = { type: 'tool/call' }
+  session.events.push(promotionEvent)
+  listeners['session/event'](session, promotionEvent)
+  const promoted = await listeners['agent/pre-step']({ agent }, async () => ({ kind: 'enter', messages: [userMessage, recall] }))
+  assert.deepEqual(promoted.messages, [userMessage, recall])
 })
 
-test('promotedCatalog defaults to resident and rejects invalid values', async () => {
-  const { listeners } = register()
-  const tools = [{ name: 'bash' }, { name: 'str_replace_editor' }, { name: 'read' }]
-  const promoted = await assemble(listeners['system-prompt/assemble'], [{ type: 'tool/call' }], tools)
-  assert.deepEqual(promoted.tools.map((tool) => tool.name), ['bash', 'str_replace_editor'])
-  assert.throws(() => register({ ...config, promotedCatalog: 'bogus' }), /promotedCatalog/)
+test('deferred-only input is admitted instead of looping', async () => {
+  const { listeners } = register({ ...config, deferSources: [{ kind: 'plugin' }] })
+  const session = { id: 'defer-only', events: [], header: {} }
+  const agent = { session, inbox: { prepend() { throw new Error('must not re-queue the only input') } } }
+  const decision = await listeners['agent/pre-step']({ agent }, async () => ({ kind: 'enter', messages: [pluginMessage] }))
+  assert.deepEqual(decision.messages, [pluginMessage])
+})
+
+test('invalid deferSources fail at apply time', () => {
+  assert.throws(() => register({ ...config, deferSources: [{ kind: '' }] }), /deferSources/)
+  assert.throws(() => register({ ...config, deferSources: 'plugin' }), /deferSources/)
 })
 
 test('forked sessions ignore inherited promotion and unlock events below seedLength', async () => {
@@ -429,4 +442,25 @@ test('forked sessions ignore inherited promotion and unlock events below seedLen
   const names = promoted.tools.map((tool) => tool.name)
   assert.ok(names.includes('subagent'), 'own unlock after the seed boundary is resident')
   assert.ok(!names.includes('web_search'), 'parent unlock below the seed boundary stays locked')
+})
+
+test('promotedCatalog: full restores the complete catalog after promotion', async () => {
+  const { listeners } = register({ ...config, promotedCatalog: 'full' })
+  const tools = [
+    { name: 'bash' }, { name: 'str_replace_editor' },
+    { name: 'dev_tool_search' }, { name: 'skill_search' }, { name: 'skill_load' },
+    { name: 'read' }, { name: 'edit' }, { name: 'web_search' },
+  ]
+  const first = await assemble(listeners['system-prompt/assemble'], [], tools, 'first')
+  assert.deepEqual(first.tools.map((tool) => tool.name), ['bash', 'str_replace_editor'])
+  const promoted = await assemble(listeners['system-prompt/assemble'], [{ type: 'assistant/message', data: {} }], tools, 'promoted')
+  assert.deepEqual(promoted.tools, tools)
+})
+
+test('promotedCatalog defaults to resident and rejects invalid values', async () => {
+  const { listeners } = register()
+  const tools = [{ name: 'bash' }, { name: 'str_replace_editor' }, { name: 'read' }]
+  const promoted = await assemble(listeners['system-prompt/assemble'], [{ type: 'tool/call' }], tools)
+  assert.deepEqual(promoted.tools.map((tool) => tool.name), ['bash', 'str_replace_editor'])
+  assert.throws(() => register({ ...config, promotedCatalog: 'bogus' }), /promotedCatalog/)
 })
