@@ -120,12 +120,19 @@
   name: '@deepseek-ai/dsh-tool-pwsh'
   disabled: !!js process.platform !== 'win32'
 
-# The Minimal preset's shell: a PTY-backed persistent bash, byte-identical in
-# configuration to the official `minimal` preset's `persistent-shell` group so
-# the first request exposes exactly Minimal's real `bash` schema. The PTY
-# registry is an agent-owned service, so it lives in an entry-local realm; the
-# backend still consumes the host sandbox policy and subprocess implementation,
-# while the tool registers into this agent's scoped catalog.
+# The Minimal preset's shell: a PTY-backed persistent bash, schema-identical
+# to the official `minimal` preset's `persistent-shell` group so the first
+# request exposes exactly Minimal's real `bash` schema. ONE deliberate config
+# difference: an adaptive `shellPath` — the terminal-bash plugin default
+# `/bin/bash` where that absolute path exists (every host that ships it keeps
+# the previous behavior), otherwise a bare `bash` resolved through the same
+# scrubbed PATH the other harness tools use. The fallback exists because
+# `/bin/bash` does not exist on NixOS and other hosts that keep bash
+# elsewhere; there `execvp("/bin/bash")` exits during PTY startup ("PTY shell
+# exited during startup") and every bash call fails. The PTY registry is an
+# agent-owned service, so it lives in an entry-local realm; the backend still
+# consumes the host sandbox policy and subprocess implementation, while the
+# tool registers into this agent's scoped catalog.
 #
 # DISABLED ON WINDOWS: DSH's PTY backend is linux/darwin-only, so the
 # persistent shell cannot serve win32. The `custom-bash` row below registers
@@ -143,6 +150,7 @@
     - id: terminal-bash
       name: '@deepseek-ai/dsh-terminal-bash'
       config:
+        shellPath: !!js "process.getBuiltinModule?.('node:fs')?.existsSync('/bin/bash') ? '/bin/bash' : 'bash'"
         timeoutMs: 300000
 
     - id: persistent-bash

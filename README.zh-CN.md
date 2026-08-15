@@ -67,6 +67,12 @@ maxTokens 下，Minimal 工具 schema 5/5 锚定（首行 `We need modify…`，
 - 仓库提交 [`47f9438`](https://github.com/deepseek-ai/deepseek-harness/tree/47f943859bef60e4160492346772ded9b24f765a)
 - Windows / Node.js 24
 
+持久 shell 的 `shellPath` 按环境自适应：`/bin/bash` 存在的传统主机保持
+terminal-bash 插件的默认行为不变；仅当该绝对路径不存在（如 NixOS，bash
+位于 Nix store 中）时才回退为 `bash`（PATH 查找）。自带 `/bin/bash` 的主机
+行为与之前完全一致，回退分支只在默认值会导致每次 bash 调用都报
+"PTY shell exited during startup" 的环境上生效。
+
 在 `0.1.0-rc.5` 源码检出上，`bootstrapMaxTokens` 能到达实际首请求（首份
 `request/header` 记录封顶值，`adapterDefaults` 为空），因为 `llm.prepareCall`
 只在提案 config 没有 maxTokens 时才物化默认值。issue #11 观察到的一个预构建 profile

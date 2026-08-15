@@ -81,6 +81,13 @@ Developed and tested against:
 - repository commit [`47f9438`](https://github.com/deepseek-ai/deepseek-harness/tree/47f943859bef60e4160492346772ded9b24f765a)
 - Node.js 24 on Windows
 
+The persistent shell resolves `shellPath` adaptively: it keeps the
+terminal-bash plugin default `/bin/bash` on hosts where that absolute path
+exists, and falls back to `bash` (PATH lookup) otherwise — e.g. NixOS, where
+bash lives under the Nix store. Hosts that ship `/bin/bash` keep the previous
+behavior exactly; the fallback only activates where the default would make
+every bash call fail with "PTY shell exited during startup".
+
 On the `0.1.0-rc.5` source checkout, `bootstrapMaxTokens` reaches the actual
 first request (the first `request/header` records the cap, `adapterDefaults`
 stays empty), because `llm.prepareCall` only materializes a default maxTokens
