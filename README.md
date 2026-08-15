@@ -181,6 +181,16 @@ npm test
   Standard adds over Minimal). Set the list to `[]` to disable the context
   filter; add other `source.kind` values to suppress more. A filter failure
   degrades to keeping every message rather than eating context.
+- **Context-provider support (local addition)** — the persona row runs with
+  `includeRuntimeContext: true`, and the bootstrap strips messages whose
+  `source.plugin` is listed in `suppressedContextPlugins` (this preset stamps
+  `@deepseek-ai/dsh-system-prompt`, the runtime-context snapshot). Request #1
+  therefore still carries the clean Minimal persona, while from request #2 on
+  the model sees third-party context providers (e.g. `dsh-claude-move` Claude
+  Code memory, sandbox/approval policy) that a long development session needs.
+  Measured on Project2 V4.1b (Windows, no ESP-IDF): 44/45 hidden tests, same
+  as the official Minimal run — enabling runtime context does not perturb the
+  anchor.
 - The tool catalog changes once, so request-prefix cache continuity also changes
   once between the first and second model requests.
 - The preset has the same trust level as shell access. Review its files before

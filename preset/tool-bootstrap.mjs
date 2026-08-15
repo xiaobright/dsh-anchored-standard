@@ -113,7 +113,7 @@ const PROMOTE_EVENTS = {
 }
 
 /** Every config key this plugin accepts — anything else is a typo. */
-const ALLOWED_KEYS = new Set(['bootstrapTools', 'promoteOn', 'bootstrapMaxTokens', 'suppressedContextSources', 'compactionTools'])
+const ALLOWED_KEYS = new Set(['bootstrapTools', 'promoteOn', 'bootstrapMaxTokens', 'suppressedContextSources', 'suppressedContextPlugins', 'compactionTools'])
 
 /**
  * Context sources stripped from the first request by default. Both are
@@ -195,6 +195,12 @@ export function apply(ctx, config) {
   const promoteEvents = parsePromoteOn(source.promoteOn)
   const bootstrapMaxTokens = optionalPositiveInt(source.bootstrapMaxTokens, 'bootstrapMaxTokens')
   const suppressedSources = sourceList(source.suppressedContextSources, 'suppressedContextSources', DEFAULT_SUPPRESSED_SOURCES)
+  // First-step messages whose source.plugin is listed here are ALSO stripped
+  // while bootstrapping. Default empty; the preset stamps
+  // '@deepseek-ai/dsh-system-prompt' (the runtime-context snapshot) here so
+  // request #1 carries the clean Minimal persona while context providers
+  // (e.g. claude-move memory) stay visible from request #2 on.
+  const suppressedPlugins = sourceList(source.suppressedContextPlugins, 'suppressedContextPlugins', [])
   // Core work set exposed after a compaction, before re-promotion. Empty
   // means "no compaction recovery catalog": the session stays on the
   // bootstrap pair until a new promotion signal.
@@ -322,11 +328,15 @@ export function apply(ctx, config) {
     const decision = await next()
     if (decision.kind === 'reject') return decision
     try {
-      if (promotion.status(agent).promoted || suppressedSources.size === 0) return decision
+      if (promotion.status(agent).promoted || (suppressedSources.size === 0 && suppressedPlugins.size === 0)) return decision
       if (!Array.isArray(decision.messages)) return decision
       const kept = decision.messages.filter((message) => {
-        const kind = message?.source?.kind
-        return typeof kind !== 'string' || !suppressedSources.has(kind)
+        const source = message?.source
+        const kind = typeof source?.kind === 'string' ? source.kind : ''
+        if (suppressedSources.has(kind)) return false
+        const plugin = typeof source?.plugin === 'string' ? source.plugin : ''
+        if (suppressedPlugins.has(plugin)) return false
+        return true
       })
       return kept.length === decision.messages.length ? decision : { ...decision, messages: kept }
     } catch (error) {

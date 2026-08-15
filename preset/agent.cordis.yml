@@ -63,6 +63,13 @@
     bootstrapTools: [bash, str_replace_editor]
     promoteOn: either
     suppressedContextSources: [agent-instructions, skill-catalog]
+    # The runtime-context snapshot message (@deepseek-ai/dsh-system-prompt)
+    # is stripped while bootstrapping so request #1 carries the clean Minimal
+    # persona only, then restored after promotion. This pairs with the persona
+    # row's includeRuntimeContext: true below: third-party context providers
+    # (e.g. dsh-claude-move memory) stay visible from request #2 on without
+    # perturbing the first-request anchor.
+    suppressedContextPlugins: ['@deepseek-ai/dsh-system-prompt']
     # Post-compaction core work set: the model is mid-task and needs to keep
     # working, but faces a small catalog instead of the full Standard set.
     compactionTools: [read, write, edit, glob, grep, todo_write, ask_user_question]
@@ -73,12 +80,20 @@
 # Harness identity and per-tool guidance from changing the system prompt, while
 # runtime-context suppression leaves task and repository rules to user messages
 # and explicit file reads. Tool schemas and their runtime enforcement remain.
+#
+# includeRuntimeContext is flipped to true (local addition): with
+# suppressedContextPlugins stripping the runtime snapshot during bootstrap, the
+# first request stays Minimal-exact, while from request #2 on the model sees
+# context providers (claude-move memory, policy, etc.) that a long development
+# session needs. The bootstrap phase itself still runs with an empty context
+# surface, so the anchor is unaffected (measured: 44/45 hidden in Project2
+# V4.1b, same as official Minimal).
 - id: persona
   name: '@deepseek-ai/dsh-persona'
   config:
     text: You are a helpful software engineer assistant.
     complete: true
-    includeRuntimeContext: false
+    includeRuntimeContext: true
 
 # Instruction FILES are NOT injected (replaces dsh-agent-instructions, local
 # addition): the full AGENTS.md/CLAUDE.md digest is a large injected block

@@ -178,6 +178,47 @@ test('bootstrap pre-step strips skill-catalog and agent-instructions messages', 
   assert.deepEqual(decision.messages.map((message) => message.id), ['m1'])
 })
 
+test('bootstrap pre-step strips messages from suppressedContextPlugins', async () => {
+  const { listeners } = register({ ...config, suppressedContextPlugins: ['@deepseek-ai/dsh-system-prompt'] })
+  const messages = [
+    { id: 'u', content: [{ type: 'text', text: 'user message' }] },
+    { id: 'snap', content: [{ type: 'text', text: 'runtime snapshot' }], source: { kind: 'user/message', plugin: '@deepseek-ai/dsh-system-prompt' } },
+    { id: 'k', content: [{ type: 'text', text: 'skill catalog' }], source: { kind: 'skill-catalog' } },
+    { id: 'p', content: [{ type: 'text', text: 'other plugin' }], source: { kind: 'plugin', plugin: 'other-plugin' } },
+  ]
+  const decision = await prestep(listeners['agent/pre-step'], [], messages)
+  assert.equal(decision.kind, 'enter')
+  assert.deepEqual(decision.messages.map((message) => message.id), ['u', 'p'])
+})
+
+test('suppressedContextPlugins is configurable and default-empty', async () => {
+  const { listeners } = register({ ...config, suppressedContextPlugins: ['my-plugin'] })
+  const messages = [
+    { id: 'u', content: [] },
+    { id: 'm', content: [], source: { kind: 'plugin', plugin: 'my-plugin' } },
+    { id: 'other', content: [], source: { kind: 'plugin', plugin: 'other-plugin' } },
+  ]
+  const decision = await prestep(listeners['agent/pre-step'], [], messages)
+  assert.deepEqual(decision.messages.map((message) => message.id), ['u', 'other'])
+})
+
+test('an empty suppressedContextPlugins list keeps the plugin filter off while sources still strip', async () => {
+  const { listeners } = register({ ...config, suppressedContextPlugins: [] })
+  const messages = [
+    { id: 'u', content: [] },
+    { id: 'k', content: [], source: { kind: 'skill-catalog' } },
+    { id: 'snap', content: [], source: { kind: 'user/message', plugin: '@deepseek-ai/dsh-system-prompt' } },
+  ]
+  const decision = await prestep(listeners['agent/pre-step'], [], messages)
+  // skill-catalog (source) still stripped; runtime snapshot (plugin-only) kept
+  assert.deepEqual(decision.messages.map((message) => message.id), ['u', 'snap'])
+})
+
+test('invalid suppressedContextPlugins values fail at apply time', () => {
+  assert.throws(() => register({ ...config, suppressedContextPlugins: 'x' }), /suppressedContextPlugins/)
+  assert.throws(() => register({ ...config, suppressedContextPlugins: ['x', 42] }), /suppressedContextPlugins/)
+})
+
 test('bootstrap strip preserves user skill gestures and other plugin messages', async () => {
   const { listeners } = register()
   const decision = await prestep(listeners['agent/pre-step'], [], [
