@@ -89,14 +89,32 @@ test('sessions derive promotion independently from their own events', async () =
   assert.deepEqual(fresh.tools.map((tool) => tool.name), ['bash', 'str_replace_editor'])
 })
 
-test('promotion is memoized per session id within one process', async () => {
+test('promotion is memoized per session object within one process', async () => {
   const { listeners } = register()
   const tools = [{ name: 'bash' }, { name: 'str_replace_editor' }, { name: 'write' }]
-  const first = await assemble(listeners['system-prompt/assemble'], [{ type: 'tool/call' }], tools, 'memo')
+  const session = { id: 'memo', events: [{ type: 'tool/call' }], header: {} }
+  const first = await listeners['system-prompt/assemble'](
+    undefined,
+    { agent: { session } },
+    async () => ({ system: 'minimal persona', tools }),
+  )
   assert.deepEqual(first.tools.map((tool) => tool.name), ['bash', 'str_replace_editor'])
-  // Same session id, events now empty: the cached decision still promotes.
-  const second = await assemble(listeners['system-prompt/assemble'], [], tools, 'memo')
+  // Same session object, events now empty: the cached decision still promotes.
+  session.events = []
+  const second = await listeners['system-prompt/assemble'](
+    undefined,
+    { agent: { session } },
+    async () => ({ system: 'minimal persona', tools }),
+  )
   assert.deepEqual(second.tools.map((tool) => tool.name), ['bash', 'str_replace_editor'])
+  // A DIFFERENT session object with the same id must not inherit the cache.
+  const fresh = { id: 'memo', events: [], header: {} }
+  const third = await listeners['system-prompt/assemble'](
+    undefined,
+    { agent: { session: fresh } },
+    async () => ({ system: 'minimal persona', tools }),
+  )
+  assert.deepEqual(third.tools.map((tool) => tool.name), ['bash', 'str_replace_editor'])
 })
 
 test('promoteOn tool-call requires a tool call, not just a reply', async () => {
@@ -354,4 +372,40 @@ test('unknown config keys reject at apply time', () => {
   assert.throws(() => register({ bootstrapTools: ['bash'], commonTools: ['read'] }), /unknown config key/)
   assert.throws(() => register(null), /config must be an object/)
   assert.throws(() => register([]), /config must be an object/)
+})
+
+test('forked sessions ignore inherited promotion and unlock events below seedLength', async () => {
+  const { listeners } = register()
+  const tools = [
+    { name: 'bash' }, { name: 'str_replace_editor' },
+    { name: 'dev_tool_search' }, { name: 'skill_search' }, { name: 'skill_load' },
+    { name: 'web_search' }, { name: 'subagent' },
+  ]
+  const session = {
+    id: 'fork',
+    header: { seedLength: 2 },
+    events: [
+      { seq: 0, type: 'assistant/message', data: {} },
+      { seq: 1, type: 'tool/call', data: { name: 'dev_tool_search', arguments: '{"toolNames":["web_search"]}' } },
+    ],
+  }
+  const cold = await listeners['system-prompt/assemble'](
+    undefined,
+    { agent: { session } },
+    async () => ({ system: 'minimal persona', tools }),
+  )
+  assert.deepEqual(cold.tools.map((tool) => tool.name), ['bash', 'str_replace_editor'])
+
+  const ownPromotion = { seq: 2, type: 'assistant/message', data: {} }
+  const ownUnlock = { seq: 3, type: 'tool/call', data: { name: 'dev_tool_search', arguments: '{"toolNames":["subagent"]}' } }
+  session.events.push(ownPromotion, ownUnlock)
+  listeners['session/event'](session, ownPromotion)
+  const promoted = await listeners['system-prompt/assemble'](
+    undefined,
+    { agent: { session } },
+    async () => ({ system: 'minimal persona', tools }),
+  )
+  const names = promoted.tools.map((tool) => tool.name)
+  assert.ok(names.includes('subagent'), 'own unlock after the seed boundary is resident')
+  assert.ok(!names.includes('web_search'), 'parent unlock below the seed boundary stays locked')
 })

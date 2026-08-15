@@ -220,10 +220,23 @@ export function apply(ctx, config) {
    * them. The event's `arguments` is the raw JSON string the model produced;
    * we parse it defensively and read the `toolNames` array.
    */
+/**
+ * Events this session produced itself. `header.seedLength` is the durable
+ * fork-lineage boundary: forked sessions replay parent history below that seq,
+ * so only events at or after it count toward THIS session's anchors/unlocks.
+ */
+function ownedEvents(session) {
+  const events = session?.events
+  if (events === undefined) return []
+  const seedLength = Number(session.header?.seedLength ?? 0)
+  if (seedLength <= 0) return events
+  return events.filter(event => event.seq === undefined || event.seq >= seedLength)
+}
+
   const unlockedFor = (session) => {
     const unlocked = new Set()
     if (session === undefined || !Array.isArray(session.events)) return unlocked
-    for (const event of session.events) {
+    for (const event of ownedEvents(session)) {
       if (event.type !== 'tool/call') continue
       if (event.data?.name !== 'dev_tool_search') continue
       let args
