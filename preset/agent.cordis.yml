@@ -86,8 +86,7 @@
 # first request stays Minimal-exact, while from request #2 on the model sees
 # context providers (claude-move memory, policy, etc.) that a long development
 # session needs. The bootstrap phase itself still runs with an empty context
-# surface, so the anchor is unaffected (measured: 44/45 hidden in Project2
-# V4.1b, same as official Minimal).
+# surface, so the first-request anchor is unaffected.
 - id: persona
   name: '@deepseek-ai/dsh-persona'
   config:
