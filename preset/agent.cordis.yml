@@ -128,8 +128,8 @@
 # while the tool registers into this agent's scoped catalog.
 #
 # DISABLED ON WINDOWS: DSH's PTY backend is linux/darwin-only, so the
-# persistent shell cannot serve win32. The `custom-bash` row below registers
-# the same `bash` tool name there instead (platform-exclusive).
+# persistent shell cannot serve win32. The `gitbash-shell` group below
+# registers the same `bash` tool name there instead (platform-exclusive).
 - id: persistent-shell
   name: cordis:group
   group: true
@@ -159,18 +159,37 @@
           * Please avoid commands that may produce a very large amount of output.
           * Please run long lived commands in the background, e.g. 'sleep 10 &' or start a server in the background.
 
-# Windows-only `bash` tool (see preset/custom-bash.mjs): registers the SAME
-# tool name as the persistent shell with a Minimal-compatible description, but
-# executes through the ordinary cross-platform subprocess seam (`bash -c`)
-# instead of a PTY. `bashPath` defaults to `bash` on PATH; point it at Git
-# Bash explicitly when the WSL shim would otherwise be picked up. No OS
-# sandbox confinement on Windows (landlock is linux-only); the tool
-# description says so.
-- id: custom-bash
-  name: ./custom-bash.mjs
+# Windows Git Bash shell group: a sandbox-gated executor (Git-for-Windows
+# auto-detection + full-access gate + spill-bounded output) and a
+# Minimal-surface `bash` tool (command + workdir only).
+- id: gitbash-shell
+  name: cordis:group
+  group: true
   disabled: !!js process.platform !== 'win32'
+  isolate:
+    shell: true
   config:
-    bashPath: 'C:\Program Files\Git\bin\bash.exe'
+    - id: gitbash-executor
+      name: ./gitbash-executor.mjs
+      config:
+        timeoutMs: 120000
+        maxTimeoutMs: 600000
+        maxOutputBytes: 64000
+        maxSpillBytes: 67108864
+        graceMs: 3000
+
+    - id: tool-gitbash
+      name: ./gitbash-tool.mjs
+      config:
+        timeoutMs: 120000
+        maxOutputBytes: 64000
+
+# Windows-only MSYS path bridge for the host-plane file tools: model passes
+# `/c/...` or `/d/...`, execution receives `C:\...` / `D:\...`.
+- id: msys-path-bridge
+  name: ./msys-path-bridge.mjs
+  config:
+    tools: [read, write, edit, grep, glob, read_image]
 
 # ── filesystem ──────────────────────────────────────────────────────────────
 
@@ -205,6 +224,12 @@
       name: '@deepseek-ai/dsh-tool-str-replace-editor'
       config:
         maxOutputChars: 16000
+
+    # Same MSYS path bridge for the bootstrap editor's `path` argument.
+    - id: msys-editor-bridge
+      name: ./msys-path-bridge.mjs
+      config:
+        tools: [str_replace_editor]
 
 # ── background jobs ────────────────────────────────────────────────────────
 
