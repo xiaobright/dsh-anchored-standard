@@ -67,6 +67,24 @@ test('after promotion ONE hint is injected once per session', async () => {
   assert.equal(second.messages.length, 1)
 })
 
+test('a persisted hint prevents reinjection after the plugin reloads', async () => {
+  const promoted = { type: 'assistant/message', seq: 1, data: {} }
+  const firstMount = register()
+  const first = await firstMount.listeners['agent/pre-step'](
+    { agent: { session: session([promoted]) } },
+    async () => decision(),
+  )
+  const persistedHint = { type: 'user/message', seq: 2, data: first.messages[1] }
+
+  const reloadedMount = register()
+  const resumed = await reloadedMount.listeners['agent/pre-step'](
+    { agent: { session: session([promoted, persistedHint]) } },
+    async () => decision(),
+  )
+
+  assert.equal(resumed.messages.length, 1)
+})
+
 test('no instruction files found → no hint message', async () => {
   const listeners = {}
   const fs = {

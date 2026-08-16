@@ -125,7 +125,18 @@ export function apply(ctx, config) {
     try {
       if (promotion.status(agent).promoted !== true) return decision
       const session = agent.session
-      if (session === undefined || hinted.has(session.id)) return decision
+      if (session === undefined) return decision
+      if (hinted.has(session.id)) return decision
+      const hintId = `instruction-hint-${session.id}`
+      const persisted = Array.isArray(session.events) && session.events.some((event) => (
+        event.type === 'user/message'
+        && event.data?.id === hintId
+        && event.data?.source?.kind === 'instruction-hint'
+      ))
+      if (persisted) {
+        hinted.add(session.id)
+        return decision
+      }
       hinted.add(session.id)
 
       const fs = ctx.get('fs')
@@ -163,7 +174,7 @@ export function apply(ctx, config) {
       return {
         ...decision,
         messages: [...decision.messages, {
-          id: `instruction-hint-${session.id}`,
+          id: hintId,
           role: 'user',
           content: [{ type: 'text', text }],
           source: { kind: 'instruction-hint', form: 'hint' },
