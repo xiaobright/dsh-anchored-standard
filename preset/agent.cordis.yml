@@ -34,9 +34,17 @@
 # 5/5 anchored vs 11/11 standard-like for every standard-family schema);
 # after the session records its first durable promotion signal (a tool call OR
 # the first assistant message, default `promoteOn: either`), later steps
-# narrow to the minimal RESIDENT set (see below). `bootstrapMaxTokens` is
-# opt-in for standard-schema bootstraps; unset, the adapter default flows. See
-# tool-bootstrap.mjs for the other triggers.
+# narrow to the minimal RESIDENT set (see below). The first-request output
+# budget is opt-in for standard-schema bootstraps; unset, the adapter default
+# flows. Two mutually exclusive shapes: `bootstrapMaxTokens` — one flat cap
+# (e.g. 1024), stripped after promotion — or `bootstrapBudgetLadder` — a
+# per-round ladder `{base, step, warmupRounds}` where round N (the
+# agent/request turn, 1-based) is capped at `base + (N-1)*step` while
+# `N <= warmupRounds`, then released. The ladder keeps the tight first-round
+# budget that anchors the "We need" trajectory while letting later bootstrap
+# rounds open up before promotion (the AnchorBudgetLadder pattern validated in
+# the RikkaHub port). Both are stripped on promotion. See tool-bootstrap.mjs
+# for the other triggers.
 #
 # The same phase gate suppresses AUTO-INJECTED context on request #1:
 # `suppressedContextSources` lists the `agent/pre-step` message sources the

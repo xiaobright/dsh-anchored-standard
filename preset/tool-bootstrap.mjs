@@ -39,6 +39,18 @@
  *     promotion — the next request's seed proposal carries the previous
  *     header's maxTokens forward, so the release must be explicit.
  *
+ *     BUDGET LADDER (local addition): `bootstrapBudgetLadder` is the per-round
+ *     variant — a `{base, step, warmupRounds}` ladder instead of one flat cap.
+ *     Round N (the agent/request `turn`, 1-based) is capped at
+ *     `base + (N-1)*step` while `N <= warmupRounds`; past the warmup the cap is
+ *     released and the adapter default flows. This mirrors the AnchorBudgetLadder
+ *     behavior validated in the RikkaHub port (base 1024, step 512, warmup 4):
+ *     the tight first-request budget that anchors the "We need" trajectory is
+ *     kept, while later bootstrap rounds get progressively more room before
+ *     promotion instead of jumping straight to the full budget. Promotion still
+ *     releases the ladder the same way a flat cap is stripped. `bootstrapMaxTokens`
+ *     and `bootstrapBudgetLadder` are mutually exclusive.
+ *
  *  3. Injected reminders. dsh-agent-instructions and dsh-tool-skill inject
  *     workspace instructions (AGENTS.md) and the skill catalog into the first
  *     step as user messages whenever such content exists. With the skill
@@ -113,7 +125,7 @@ const PROMOTE_EVENTS = {
 }
 
 /** Every config key this plugin accepts — anything else is a typo. */
-const ALLOWED_KEYS = new Set(['bootstrapTools', 'promoteOn', 'bootstrapMaxTokens', 'suppressedContextSources', 'compactionTools'])
+const ALLOWED_KEYS = new Set(['bootstrapTools', 'promoteOn', 'bootstrapMaxTokens', 'bootstrapBudgetLadder', 'suppressedContextSources', 'compactionTools'])
 
 /**
  * Context sources stripped from the first request by default. Both are
@@ -179,6 +191,35 @@ function optionalPositiveInt(value, field) {
   return value
 }
 
+/** A safe integer that may be zero. */
+function optionalNonNegativeInt(value, field) {
+  if (value === undefined) return undefined
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new TypeError(`${name}: ${field} must be a non-negative safe integer`)
+  }
+  return value
+}
+
+/**
+ * Parse the optional budget ladder. `undefined` means no ladder. Returns
+ * `{ base, step, warmupRounds }` with `base` and `warmupRounds` positive safe
+ * integers and `step` a non-negative safe integer. `step` may be zero: a flat
+ * ladder that caps every warmup round at `base`, then releases.
+ */
+function optionalBudgetLadder(value) {
+  if (value === undefined) return undefined
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new TypeError(`${name}: bootstrapBudgetLadder must be an object`)
+  }
+  const base = optionalPositiveInt(value.base, 'bootstrapBudgetLadder.base')
+  const step = optionalNonNegativeInt(value.step, 'bootstrapBudgetLadder.step')
+  const warmupRounds = optionalPositiveInt(value.warmupRounds, 'bootstrapBudgetLadder.warmupRounds')
+  if (base === undefined || step === undefined || warmupRounds === undefined) {
+    throw new TypeError(`${name}: bootstrapBudgetLadder requires base, step, and warmupRounds`)
+  }
+  return { base, step, warmupRounds }
+}
+
 /** Register the per-session bootstrap filters. */
 export function apply(ctx, config) {
   const source = config === undefined ? {} : config
@@ -194,6 +235,10 @@ export function apply(ctx, config) {
   const bootstrapTools = stringList(source.bootstrapTools, 'bootstrapTools')
   const promoteEvents = parsePromoteOn(source.promoteOn)
   const bootstrapMaxTokens = optionalPositiveInt(source.bootstrapMaxTokens, 'bootstrapMaxTokens')
+  const bootstrapBudgetLadder = optionalBudgetLadder(source.bootstrapBudgetLadder)
+  if (bootstrapMaxTokens !== undefined && bootstrapBudgetLadder !== undefined) {
+    throw new TypeError(`${name}: bootstrapMaxTokens and bootstrapBudgetLadder are mutually exclusive`)
+  }
   const suppressedSources = sourceList(source.suppressedContextSources, 'suppressedContextSources', DEFAULT_SUPPRESSED_SOURCES)
   // Core work set exposed after a compaction, before re-promotion. Empty
   // means "no compaction recovery catalog": the session stays on the
@@ -282,33 +327,71 @@ export function apply(ctx, config) {
     }
   })
 
-  // Optionally cap the first model request's output budget while bootstrapping.
-  // Unset (`bootstrapMaxTokens` omitted) means the adapter default flows — the
-  // Minimal tool schema anchors at 256000 without a cap (issue #11).
-  if (bootstrapMaxTokens !== undefined) {
-    // Same registration discipline as the pre-step strip below: `prepend`
-    // keeps this listener the OUTERMOST transform of the agent/request
-    // waterfall for the same registration-order reasons (loader row
-    // application is concurrent; row order alone does not decide listener
-    // order — see issue #6 and upstream PR #13), so a later listener can
-    // never override the first-round budget after we set it.
+  // Optionally shape the first model request's output budget while
+  // bootstrapping: either one flat cap (`bootstrapMaxTokens`) or a per-round
+  // ladder (`bootstrapBudgetLadder`). Unset both and the adapter default flows
+  // — the Minimal tool schema anchors at 256000 without a cap (issue #11).
+  //
+  // Same registration discipline as the pre-step strip below: `prepend` keeps
+  // this listener the OUTERMOST transform of the agent/request waterfall for
+  // the same registration-order reasons (loader row application is concurrent;
+  // row order alone does not decide listener order — see issue #6 and upstream
+  // PR #13), so a later listener can never override the first-round budget
+  // after we set it.
+  if (bootstrapMaxTokens !== undefined || bootstrapBudgetLadder !== undefined) {
+    // The cap to apply on bootstrap round N (1-based), or undefined to release.
+    const capForRound = (round) => {
+      if (bootstrapBudgetLadder !== undefined) {
+        if (round > bootstrapBudgetLadder.warmupRounds) return undefined
+        return bootstrapBudgetLadder.base + (round - 1) * bootstrapBudgetLadder.step
+      }
+      return bootstrapMaxTokens
+    }
+    // The last cap this listener injected per session, so promotion (or a
+    // ladder passing its warmup) can strip exactly what it injected. The next
+    // request's seed proposal carries the previous header's maxTokens forward,
+    // so the release must be explicit.
+    const injectedCaps = new Map()
+    // Every value this ladder could have injected — used to recognize a cap
+    // carried forward from a previous process (resume) that this process never
+    // tracked, mirroring the fixed-cap heuristic below.
+    const ladderRungs = bootstrapBudgetLadder === undefined
+      ? null
+      : Array.from({ length: bootstrapBudgetLadder.warmupRounds }, (_, i) => bootstrapBudgetLadder.base + i * bootstrapBudgetLadder.step)
+
     ctx.on('agent/request', async (payload, next) => {
       const resolved = await next()
       const agent = payload.agent
-      if (promotion.status(agent).promoted) {
-        // The next request's seed proposal carries the previous header's
-        // maxTokens forward, so the injected cap must be stripped explicitly —
-        // otherwise it would persist for the whole session.
-        if (resolved.maxTokens === bootstrapMaxTokens) {
-          const { maxTokens: _bootstrap, ...rest } = resolved
+      const sessionId = agent?.session?.id
+      // Strip a carried-forward cap. The value must be one this listener could
+      // have injected: the tracked per-session cap, the configured fixed cap,
+      // or any rung of the ladder — heuristics that keep working when the
+      // process never injected this session (resume, memoized promotion).
+      const stripInjected = (candidate) => {
+        const tracked = sessionId === undefined ? undefined : injectedCaps.get(sessionId)
+        const fixed = bootstrapBudgetLadder === undefined ? bootstrapMaxTokens : undefined
+        const rung = candidate !== undefined && ladderRungs !== null && ladderRungs.includes(candidate)
+        if (candidate !== undefined && (candidate === tracked || candidate === fixed || rung)) {
+          if (sessionId !== undefined) injectedCaps.delete(sessionId)
+          const { maxTokens: _injected, ...rest } = resolved
           return rest
         }
         return resolved
       }
-      return {
-        ...resolved,
-        maxTokens: bootstrapMaxTokens,
+      if (promotion.status(agent).promoted) {
+        // Promotion ends the bootstrap budget: strip the cap we injected so the
+        // adapter default (or a later caller's value) takes over.
+        return stripInjected(resolved.maxTokens)
       }
+      const round = (Number.isSafeInteger(payload.turn) && payload.turn >= 1 ? payload.turn : 1)
+      const cap = capForRound(round)
+      if (cap === undefined) {
+        // Past the ladder's warmup: release the injected cap too, so the budget
+        // actually opens up instead of carrying the last ladder rung forward.
+        return stripInjected(resolved.maxTokens)
+      }
+      injectedCaps.set(sessionId, cap)
+      return { ...resolved, maxTokens: cap }
     }, { prepend: true })
   }
 
