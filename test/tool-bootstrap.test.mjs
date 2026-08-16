@@ -161,6 +161,87 @@ test('invalid bootstrapMaxTokens fails at apply time', () => {
   assert.throws(() => register({ ...config, bootstrapMaxTokens: 0 }), /bootstrapMaxTokens/)
 })
 
+// ── bootstrapBudgetLadder (the per-round budget ladder) ─────────────────────
+
+test('bootstrapBudgetLadder caps each bootstrap round at base + (round-1)*step', async () => {
+  const { listeners } = register({ ...config, bootstrapBudgetLadder: { base: 1024, step: 512, warmupRounds: 4 } })
+  const resolved = await request(listeners['agent/request'], [], { provider: 'x', model: 'y' }, 'ladder')
+  assert.equal(resolved.maxTokens, 1024)
+})
+
+test('bootstrapBudgetLadder resolves the cap from the agent/request turn', async () => {
+  const { listeners } = register({ ...config, bootstrapBudgetLadder: { base: 1024, step: 512, warmupRounds: 4 } })
+  const rounds = [1, 2, 3, 4].map((turn) =>
+    listeners['agent/request']({ agent: agent([], 'ladder'), turn, step: 1 }, async () => ({ provider: 'x', model: 'y' })),
+  )
+  const caps = await Promise.all(rounds)
+  assert.deepEqual(caps.map((resolved) => resolved.maxTokens), [1024, 1536, 2048, 2560])
+})
+
+test('bootstrapBudgetLadder releases the cap past the warmup rounds', async () => {
+  const { listeners } = register({ ...config, bootstrapBudgetLadder: { base: 1024, step: 512, warmupRounds: 2 } })
+  const warm = await listeners['agent/request'](
+    { agent: agent([], 'ladder'), turn: 2, step: 1 },
+    async () => ({ provider: 'x', model: 'y' }),
+  )
+  assert.equal(warm.maxTokens, 1536)
+  const past = await listeners['agent/request'](
+    { agent: agent([], 'ladder'), turn: 3, step: 1 },
+    async () => ({ provider: 'x', model: 'y', maxTokens: 1536 }),
+  )
+  assert.equal(past.maxTokens, undefined)
+})
+
+test('bootstrapBudgetLadder with a zero step is a flat warmup cap', async () => {
+  const { listeners } = register({ ...config, bootstrapBudgetLadder: { base: 2048, step: 0, warmupRounds: 3 } })
+  const caps = await Promise.all([1, 2, 3].map((turn) =>
+    listeners['agent/request']({ agent: agent([], 'ladder'), turn, step: 1 }, async () => ({ provider: 'x', model: 'y' })),
+  ))
+  assert.deepEqual(caps.map((resolved) => resolved.maxTokens), [2048, 2048, 2048])
+})
+
+test('bootstrapBudgetLadder strips the injected cap after promotion', async () => {
+  const { listeners } = register({ ...config, bootstrapBudgetLadder: { base: 1024, step: 512, warmupRounds: 4 } })
+  const resolved = await request(
+    listeners['agent/request'],
+    [{ type: 'tool/call' }],
+    { provider: 'x', model: 'y', maxTokens: 1024 },
+    'ladder',
+  )
+  assert.equal(resolved.maxTokens, undefined)
+})
+
+test('bootstrapBudgetLadder keeps a non-injected maxTokens after promotion', async () => {
+  const { listeners } = register({ ...config, bootstrapBudgetLadder: { base: 1024, step: 512, warmupRounds: 4 } })
+  const resolved = await request(
+    listeners['agent/request'],
+    [{ type: 'assistant/message' }],
+    { provider: 'x', model: 'y', maxTokens: 256000 },
+    'ladder',
+  )
+  assert.equal(resolved.maxTokens, 256000)
+})
+
+test('bootstrapBudgetLadder registers with prepend like the fixed cap', () => {
+  const { hookOptions } = register({ ...config, bootstrapBudgetLadder: { base: 1024, step: 512, warmupRounds: 4 } })
+  assert.deepEqual(hookOptions['agent/request'], { prepend: true })
+})
+
+test('bootstrapMaxTokens and bootstrapBudgetLadder are mutually exclusive', () => {
+  assert.throws(
+    () => register({ ...config, bootstrapMaxTokens: 1024, bootstrapBudgetLadder: { base: 1024, step: 512, warmupRounds: 4 } }),
+    /mutually exclusive/,
+  )
+})
+
+test('invalid bootstrapBudgetLadder values fail at apply time', () => {
+  assert.throws(() => register({ ...config, bootstrapBudgetLadder: 42 }), /bootstrapBudgetLadder/)
+  assert.throws(() => register({ ...config, bootstrapBudgetLadder: { base: 1024, step: 512 } }), /bootstrapBudgetLadder/)
+  assert.throws(() => register({ ...config, bootstrapBudgetLadder: { base: 0, step: 512, warmupRounds: 4 } }), /bootstrapBudgetLadder.base/)
+  assert.throws(() => register({ ...config, bootstrapBudgetLadder: { base: 1024, step: -1, warmupRounds: 4 } }), /bootstrapBudgetLadder.step/)
+  assert.throws(() => register({ ...config, bootstrapBudgetLadder: { base: 1024, step: 512, warmupRounds: 0 } }), /bootstrapBudgetLadder.warmupRounds/)
+})
+
 test('pre-step filter registers with prepend before every other listener', () => {
   const { hookOptions } = register()
   assert.equal(hookOptions['agent/pre-step']?.prepend, true)

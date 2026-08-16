@@ -74,7 +74,8 @@ Three first-request levers decide the trajectory (issue #11):
    fell standard-like 11/11.
 2. **Output budget** — a 1024 first-request cap also anchored the trajectory
    (26/32), independent of the tool descriptions. The base mode leaves this
-   lever unset (`bootstrapMaxTokens` is opt-in).
+   lever unset (`bootstrapMaxTokens` and `bootstrapBudgetLadder` are opt-in;
+   the ladder relaxes the cap round by round during bootstrap).
 3. **Injected reminders** — the AGENTS.md/CLAUDE.md digest and the
    available-skills reminder. With the skill catalog present the anchor did
    not reproduce at all (0/9); both are stripped during bootstrap.
@@ -154,7 +155,8 @@ waterfall registration order decides the first-request strip):
 |---|---|---|
 | `bootstrapTools` | `[bash, str_replace_editor]` | Tools visible on request #1. |
 | `promoteOn` | `either` | Promotion trigger: `either`, `tool-call`, or `assistant-message`. |
-| `bootstrapMaxTokens` | unset | Optional output cap for request #1; stripped after promotion. |
+| `bootstrapMaxTokens` | unset | Optional flat output cap for the bootstrap requests; stripped after promotion. |
+| `bootstrapBudgetLadder` | unset | Alternative to `bootstrapMaxTokens` (mutually exclusive): `{base, step, warmupRounds}` — bootstrap round N is capped at `base + (N-1)*step` while `N <= warmupRounds`, then released. The tight first-round budget anchors the "We need" trajectory while later rounds open up before promotion. |
 | `suppressedContextSources` | `[agent-instructions, skill-catalog]` | `source.kind` values stripped during bootstrap; `[]` disables the filter. |
 | `compactionTools` | `[]` | Extra tools available between a compaction boundary and re-promotion. |
 
@@ -259,10 +261,13 @@ Export the session JSONL and inspect `request/header` events. Reproduction
 checklist (issue #11 asks for the first two explicitly, because both are the
 variables that decide the anchor):
 
-- **First-request `config.maxTokens` value**: with `bootstrapMaxTokens` unset
+- **First-request `config.maxTokens` value**: with both budget knobs unset
   (the default), the first header records the adapter default (e.g. 256000
-  with `adapterDefaults.maxTokens: true`); with a cap configured it records
-  the cap (e.g. 1024 with no maxTokens adapterDefault).
+  with `adapterDefaults.maxTokens: true`); with `bootstrapMaxTokens` it
+  records the cap (e.g. 1024 with no maxTokens adapterDefault); with
+  `bootstrapBudgetLadder` it records the round-1 rung `base`, and each later
+  bootstrap round records `base + (round-1)*step` until the ladder passes its
+  warmup and the budget releases.
 - **First-request tool schema source**: the first header's `tools` array must
   be exactly `["bash", "str_replace_editor"]` — the official Minimal preset's
   real schemas, not Standard's `pwsh`/`read`.
@@ -294,10 +299,15 @@ npm test
 - A failed tool execution still promotes the session because the durable
   `tool/call` already exists.
 - The first request's output budget is NOT capped by default: the Minimal tool
-  schema anchors at the adapter-default maxTokens, so `bootstrapMaxTokens` is
-  opt-in. When set, the first request is capped and the cap is explicitly
-  stripped after promotion (the next request's seed proposal carries the
-  previous header's maxTokens forward).
+  schema anchors at the adapter-default maxTokens, so both budget knobs are
+  opt-in. `bootstrapMaxTokens` caps every bootstrap request at one value;
+  `bootstrapBudgetLadder` caps round N at `base + (N-1)*step` for
+  `N <= warmupRounds` and then releases — a ladder that keeps the tight
+  first-round anchor (the "We need" trajectory) while giving later bootstrap
+  rounds progressively more room before promotion. Either cap is explicitly
+  stripped after promotion, and the ladder is stripped once it passes its
+  warmup (the next request's seed proposal carries the previous header's
+  maxTokens forward). The two are mutually exclusive.
 - The promoted catalog is the RESIDENT set — the bootstrap pair plus the
   discovery tools plus everything the model unlocked via `dev_tool_search` —
   not the full Standard dump. The Standard sandboxed `bash` row stays disabled
