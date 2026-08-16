@@ -113,7 +113,21 @@ const PROMOTE_EVENTS = {
 }
 
 /** Every config key this plugin accepts — anything else is a typo. */
-const ALLOWED_KEYS = new Set(['bootstrapTools', 'promoteOn', 'bootstrapMaxTokens', 'suppressedContextSources', 'compactionTools'])
+const ALLOWED_KEYS = new Set(['bootstrapTools', 'promoteOn', 'bootstrapMaxTokens', 'suppressedContextSources', 'compactionTools', 'promotedTools'])
+
+/**
+ * `promotedTools` selects the post-promotion resident catalog. `'*'` keeps
+ * the FULL assembled catalog unchanged — for presets whose own rows are
+ * already a curated set (e.g. a minimal-gray composition) and should not be
+ * narrowed twice. An explicit array replaces the default keep-set (plus the
+ * discovery tools and dev_tool_search unlocks). Absent, the upstream default
+ * applies: bootstrap pair + discovery tools + unlocks.
+ */
+function parsePromotedTools(value) {
+  if (value === undefined) return undefined
+  if (value === '*') return '*'
+  return stringList(value, 'promotedTools')
+}
 
 /**
  * Context sources stripped from the first request by default. Both are
@@ -193,6 +207,7 @@ export function apply(ctx, config) {
   }
   const bootstrapTools = stringList(source.bootstrapTools, 'bootstrapTools')
   const promoteEvents = parsePromoteOn(source.promoteOn)
+  const promotedTools = parsePromotedTools(source.promotedTools)
   const bootstrapMaxTokens = optionalPositiveInt(source.bootstrapMaxTokens, 'bootstrapMaxTokens')
   const suppressedSources = sourceList(source.suppressedContextSources, 'suppressedContextSources', DEFAULT_SUPPRESSED_SOURCES)
   // Core work set exposed after a compaction, before re-promotion. Empty
@@ -266,7 +281,13 @@ export function apply(ctx, config) {
         // discovery tools + whatever the model explicitly unlocked via
         // dev_tool_search — instead of dumping the whole Standard catalog at
         // once (the post-promotion regression fix; see the header note).
-        const keep = new Set([...bootstrapTools, ...RESIDENT_DISCOVERY_TOOLS, ...unlockedFor(context.agent?.session)])
+        // `promotedTools: '*'` opts out of narrowing entirely: presets whose
+        // own rows are already a curated set (e.g. minimal-gray compositions)
+        // promote to the full assembled catalog without a second filter.
+        if (promotedTools === '*') return assembled
+        const keep = promotedTools !== undefined
+          ? new Set([...promotedTools, ...RESIDENT_DISCOVERY_TOOLS, ...unlockedFor(context.agent?.session)])
+          : new Set([...bootstrapTools, ...RESIDENT_DISCOVERY_TOOLS, ...unlockedFor(context.agent?.session)])
         return keepTools(assembled, keep, false)
       }
       // Controlled phase: the bootstrap pair; after a compaction, plus the
