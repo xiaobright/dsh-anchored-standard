@@ -1,0 +1,414 @@
+# The `anchored-standard` experimental preset: Standard capabilities with the
+# Minimal mode system-prompt condition used by the V4 trajectory evaluation.
+#
+# This file is an AGENT-PLANE composition. The roster mounts it ONCE under a
+# standing scope; every session naming it joins by scope parentage, so the
+# tools and prompt sections registered here cover each joined agent while a
+# session's own state stays keyed per Session/Agent inside the plugins. The
+# host composition (`base.cordis.yml` + `web.cordis.yml`) keeps everything a
+# preset must not own: the registries themselves, the sandbox and approval
+# stack, persistence, and the model route.
+#
+# A service row here MUST sit inside a group carrying an `isolate` realm.
+# Without one it publishes into the root realm, where it is process-global —
+# another preset publishing the same name collides, and a host reader would
+# resolve one preset's instance for every session; `dsh-agent-presets` rejects
+# that at mount. `true` means an entry-local realm: this standing mount's own
+# private instance, apart from every other preset's. (A shared label does NOT
+# pool instances — `provide()` throws on the second registration under the
+# same realm symbol; labels join REALMS, and are not what this file needs.)
+
+# ── bootstrap (must stay FIRST) ─────────────────────────────────────────────
+
+# This row deliberately sits before every other row: dsh-agent-instructions and
+# dsh-tool-skill inject workspace instructions and the skill catalog into the
+# first request via the agent/pre-step waterfall, and waterfall after-next
+# transforms apply in reverse registration order. Registering first (plus the
+# plugin empty inject list and the listener's `prepend` flag) makes this filter
+# strip the final transform, so request #1 stays Minimal-exact (see issue #6).
+#
+# V4 Pro conditions strongly on the API tool catalog AND the first request
+# output budget. Bootstrap request #1 with the OFFICIAL Minimal preset's real
+# tool pair — persistent `bash` + `str_replace_editor` — which anchors at the
+# adapter-default maxTokens (256000) with no output cap needed (issue #11:
+# 5/5 anchored vs 11/11 standard-like for every standard-family schema);
+# after the session records its first durable promotion signal (a tool call OR
+# the first assistant message, default `promoteOn: either`), later steps
+# narrow to the minimal RESIDENT set (see below). `bootstrapMaxTokens` is
+# opt-in for standard-schema bootstraps; unset, the adapter default flows. See
+# tool-bootstrap.mjs for the other triggers.
+#
+# The same phase gate suppresses AUTO-INJECTED context on request #1:
+# `suppressedContextSources` lists the `agent/pre-step` message sources the
+# bootstrap filter strips while the session is unpromoted. The defaults are the
+# two automatic injections Standard adds over Minimal — the available-skills
+# reminder (`skill-catalog`) and the workspace instruction digest
+# (`agent-instructions`). User-initiated skill gestures are not filtered, and
+# both injections return unchanged from request #2 on. Set the list to [] to
+# disable the context filter while keeping the tool bootstrap.
+#
+# POST-PROMOTION (local addition): the promoted catalog is NOT the full
+# Standard dump — it stays on the bootstrap pair + the three discovery tools
+# (dev_tool_search / skill_search / skill_load) + whatever the model unlocked
+# via dev_tool_search. Heavier tools are one dev_tool_search away; the
+# trajectory is not pulled back to standard-like behavior by a 25-tool dump.
+#
+# COMPACTION (local addition): after `compaction/end` the session falls back
+# to the controlled phase — bootstrap pair + `compactionTools` — until a NEW
+# durable promotion signal exists past the boundary (epoch-aware, see
+# compaction-epoch.mjs).
+#
+# DUAL-ANCHOR (this variant, issue #25): `bootstrapMaxTokens: 1024` pins the
+# first request's output budget to 1024 so the CAP anchor path runs alongside
+# the Minimal-schema anchor path — issue #11 measured "We need" style in
+# 26/32 runs at max_tokens=1024 independent of tool descriptions, while the
+# Minimal tool pair anchors 5/5 at the adapter default. Running both paths in
+# parallel keeps the anchor stable even when the adapter default maxTokens
+# drifts off 256000 (e.g. an `adapterDefaults.maxTokens` override) or the
+# Minimal schema contract breaks on a harness upgrade. The cap is stripped
+# after promotion (see tool-bootstrap.mjs).
+- id: tool-bootstrap
+  name: ./tool-bootstrap.mjs
+  config:
+    bootstrapTools: [bash, str_replace_editor]
+    promoteOn: either
+    suppressedContextSources: [agent-instructions, skill-catalog]
+    # Stabilization (issue #25): cap the first request's output budget to 1024
+    # so the cap anchor path runs alongside the Minimal-schema anchor path.
+    # Stripped after promotion by tool-bootstrap.mjs.
+    bootstrapMaxTokens: 1024
+    # Post-compaction core work set: the model is mid-task and needs to keep
+    # working, but faces a small catalog instead of the full Standard set.
+    compactionTools: [read, write, edit, glob, grep, todo_write, ask_user_question]
+
+# ── identity ────────────────────────────────────────────────────────────────
+
+# Keep this text byte-identical to the Minimal preset. `complete` prevents the
+# Harness identity and per-tool guidance from changing the system prompt, while
+# runtime-context suppression leaves task and repository rules to user messages
+# and explicit file reads. Tool schemas and their runtime enforcement remain.
+- id: persona
+  name: '@deepseek-ai/dsh-persona'
+  config:
+    text: You are a helpful software engineer assistant.
+    complete: true
+    includeRuntimeContext: false
+
+# Instruction FILES are NOT injected (replaces dsh-agent-instructions, local
+# addition): the full AGENTS.md/CLAUDE.md digest is a large injected block
+# that perturbs the trajectory even after promotion. Instead, after promotion
+# ONE short hint is injected once per session — "these instruction files
+# exist; read them before acting" — and the model reads the files itself via
+# the filesystem tools when relevant.
+- id: instruction-hint
+  name: ./instruction-hint.mjs
+  config:
+    promoteOn: either
+
+# On-demand tool discovery (the tool-search pattern, local addition): the
+# promoted catalog keeps a minimal resident set; heavier Standard tools
+# (web_search, subagent, workflow, …) are unlocked on demand via
+# dev_tool_search.
+- id: dev-tool-search
+  name: ./dev-tool-search.mjs
+
+# ── shell ───────────────────────────────────────────────────────────────────
+
+# `shell-env` stays in the HOST composition: `apps/cli/src/web.ts` injects it to
+# publish `DSH_WEB_URL`/`DSH_WEB_MODE`, and a host row that injects a service is
+# the criterion for host-plane ownership — injection resolves before any session
+# exists, so there is no agent to key by. Behind a preset realm those variables
+# never reached the model's shell at all. Both shell tools consume the host
+# registry from here; their executors (`bash-sandbox`/`pwsh-sandbox`) are
+# host-plane too.
+- id: tool-bash
+  name: '@deepseek-ai/dsh-tool-bash'
+  # Disabled on EVERY platform, not just Windows: `dsh-tool-bash-persistent`
+  # below registers the same `bash` tool name into this same preset layer, and
+  # the tools registry rejects duplicates within one layer. The persistent
+  # shell (the Minimal preset's own shell) is the preset's bash; it consumes
+  # the host sandbox policy through the terminals realm.
+  disabled: true
+
+- id: tool-pwsh
+  name: '@deepseek-ai/dsh-tool-pwsh'
+  disabled: !!js process.platform !== 'win32'
+
+# The Minimal preset's shell: a PTY-backed persistent bash, byte-identical in
+# configuration to the official `minimal` preset's `persistent-shell` group so
+# the first request exposes exactly Minimal's real `bash` schema. The PTY
+# registry is an agent-owned service, so it lives in an entry-local realm; the
+# backend still consumes the host sandbox policy and subprocess implementation,
+# while the tool registers into this agent's scoped catalog.
+#
+# DISABLED ON WINDOWS: DSH's PTY backend is linux/darwin-only, so the
+# persistent shell cannot serve win32. The `custom-bash` row below registers
+# the same `bash` tool name there instead (platform-exclusive).
+- id: persistent-shell
+  name: cordis:group
+  group: true
+  disabled: !!js process.platform === 'win32'
+  isolate:
+    terminals: true
+  config:
+    - id: pty
+      name: '@deepseek-ai/dsh-terminal'
+
+    - id: terminal-bash
+      name: '@deepseek-ai/dsh-terminal-bash'
+      config:
+        timeoutMs: 300000
+
+    - id: persistent-bash
+      name: '@deepseek-ai/dsh-tool-bash-persistent'
+      config:
+        timeoutMs: 300000
+        description: |-
+          Run commands in a bash shell
+          * When invoking this tool, the contents of the "command" parameter does NOT need to be XML-escaped.
+          * You don't have access to the internet via this tool.
+          * You do have access to a mirror of common linux and python packages via apt and pip.
+          * State is persistent across command calls and discussions with the user.
+          * To inspect a particular line range of a file, e.g. lines 10-25, try 'sed -n 10,25p /path/to/the/file'.
+          * Please avoid commands that may produce a very large amount of output.
+          * Please run long lived commands in the background, e.g. 'sleep 10 &' or start a server in the background.
+
+# Windows-only `bash` tool (see preset/custom-bash.mjs): registers the SAME
+# tool name as the persistent shell with a Minimal-compatible description, but
+# executes through the ordinary cross-platform subprocess seam (`bash -c`)
+# instead of a PTY. `bashPath` defaults to `bash` on PATH; point it at Git
+# Bash explicitly when the WSL shim would otherwise be picked up. No OS
+# sandbox confinement on Windows (landlock is linux-only); the tool
+# description says so.
+- id: custom-bash
+  name: ./custom-bash.mjs
+  disabled: !!js process.platform !== 'win32'
+  config:
+    bashPath: 'C:\Program Files\Git\bin\bash.exe'
+
+# ── filesystem ──────────────────────────────────────────────────────────────
+
+# Both register into the host `tools` registry and provide nothing, so
+# they need no realm. The `fs` service and its policy stay in the host.
+- id: tool-fs
+  name: '@deepseek-ai/dsh-tool-fs'
+
+- id: tool-fs-search
+  name: '@deepseek-ai/dsh-tool-fs-search'
+  config:
+    sampleOverCapGlobResults: false
+
+# The Minimal preset's second tool: `str_replace_editor` over a bare local
+# filesystem, byte-identical in configuration to the official `minimal`
+# preset's `filesystem` group. The editor's own realm shadows the host's
+# sandboxed `fs` provider only inside this group, so the standard `read`/
+# `write`/`edit` tools keep the sandboxed fs while the bootstrap editor uses
+# the local one.
+- id: bootstrap-filesystem
+  name: cordis:group
+  group: true
+  isolate:
+    fs: true
+  config:
+    - id: fs-local
+      name: '@deepseek-ai/dsh-fs-local'
+      config:
+        cwd: !!js process.env.DSH_CWD ?? process.cwd()
+
+    - id: str-replace-editor
+      name: '@deepseek-ai/dsh-tool-str-replace-editor'
+      config:
+        maxOutputChars: 16000
+
+# ── background jobs ────────────────────────────────────────────────────────
+
+# Only the model-facing controls. The task REGISTRY stays on the host plane:
+# its producers sit outside any realm this file could put it in — `tool-bash`
+# above resolves it with `ctx.get`, and an entry-local realm here is invisible
+# to every sibling row, so `run_in_background` would answer "background jobs
+# unavailable" while these controls sat in the catalog. The registry is keyed by
+# owning agent anyway, so one host instance serves every session. What a preset
+# chooses is whether its agent can collect and stop background work at all.
+- id: tool-jobs
+  name: '@deepseek-ai/dsh-tool-jobs'
+
+# ── skills ──────────────────────────────────────────────────────────────────
+
+# The skill REGISTRY lives in the host composition and is layered per scope:
+# these rows register into THIS preset's layer of it, so they need no realm.
+# `skill-filesystem` contributes local-root discovery for agents on this
+# preset. The full skill CATALOG injection (`dsh-tool-skill`, the ~9KB
+# `<available_skills>` reminder) is REMOVED (local addition): it perturbs the
+# trajectory (issue #6: 0/9 anchored with the catalog present vs ~81%
+# without). Instead `skill-search` exposes two small on-demand tools —
+# skill_search (list matching summaries) and skill_load (inject one skill's
+# full instructions) — the tool-search pattern.
+- id: skill-filesystem
+  name: '@deepseek-ai/dsh-skill-filesystem'
+
+- id: skill-search
+  name: ./skill-search.mjs
+
+# ── goals ───────────────────────────────────────────────────────────────────
+
+# Only the model-facing tool. The goal SERVICE, its session driver, and the
+# `/goal` command stay on the host plane: the Gateway serves the goal domain as
+# Remote endpoints whose receiver comes from a generated descriptor, so it
+# resolves `goals` on the host and an entry-local realm here would hide it. The
+# registry is keyed by session anyway, so one host instance serves every
+# session. What a preset chooses is whether its agent can call the goal tool.
+- id: tool-goal
+  name: '@deepseek-ai/dsh-tool-goal'
+
+# ── plan mode ───────────────────────────────────────────────────────────────
+
+# Plan state is per-agent by nature, so an entry-local realm is not a
+# workaround here — it is the correct lifetime.
+- id: planning
+  name: cordis:group
+  group: true
+  isolate:
+    planMode: true
+  config:
+    - id: plan-mode
+      name: '@deepseek-ai/dsh-plan-mode'
+      config:
+        section: |
+              You are in plan mode. Stay in plan mode until exit_plan_mode succeeds or the user switches the session mode. Imperative language to implement changes means plan the implementation, not execute it. A user's conversational agreement — including an answer confirming something you asked — approves nothing and does not end plan mode; fold the confirmed decision into the plan and submit it through exit_plan_mode.
+
+              Explore first. Use non-mutating reads, searches, static analysis, and checks to ground the plan in the actual repository. Do not edit or write files, change configuration, run formatters or code generation that rewrites tracked files, commit, or otherwise carry out the plan. Prefer existing functions and patterns over new machinery.
+
+              The tool catalog stays the same across modes for request-cache stability. These plan-mode rules override any later tool description or guidance that suggests using mutation tools; those tools remain listed to keep the tool catalog unchanged. Do not use todo_write to track this planning phase: it tracks implementation after an approved plan, while the plan itself belongs in exit_plan_mode.
+
+              Resolve discoverable facts by inspection. Use ask_user_question only for user-owned choices or material ambiguity that inspection cannot answer. Do not ask the user where code lives or how current behavior works when you can find out.
+
+              Make the plan decision-complete: state the goal and success criteria; group implementation changes by subsystem; identify public API, schema, and data-flow changes; cover edge cases, failure modes, tests, acceptance criteria, and explicit assumptions. Keep it concise enough to review but detailed enough that another engineer can implement it without making design decisions.
+
+              When ready, call exit_plan_mode with the complete plan markdown, starting with a # title. Make exit_plan_mode the only and final tool call in that assistant response: it presents the plan for approval, and implementation begins only in a later step after approval. Do not paste the final plan as a plain reply or ask "should I proceed?" through prose or ask_user_question. If review rejects it, incorporate the feedback and present again. If the review channel is unavailable or aborted, stay in plan mode and ask the user to switch modes manually; do not proceed with implementation.
+
+# ── compaction ──────────────────────────────────────────────────────────────
+
+# `compaction-basic` reads `toolResultPrune` through `ctx.get`, so the pruner must
+# share this realm rather than sit outside it.
+#
+# `tokenMeter` is deliberately NOT in this realm: the meter stays on the HOST
+# plane, and the rows here resolve that one instance. It takes no configuration,
+# keys every fold by Session, and owns the context-meter projection units the
+# browser reads for every session — behind a realm those units would come and go
+# with whichever presets happen to be mounted. What a preset chooses is whether
+# its agent compacts at all, which is `compaction-basic` below.
+- id: compaction
+  name: cordis:group
+  group: true
+  isolate:
+    compaction: true
+    toolResultPruner: true
+  config:
+    - id: compaction-basic
+      name: '@deepseek-ai/dsh-compaction-basic'
+
+    - id: command-compact
+      name: '@deepseek-ai/dsh-command-compact'
+
+    - id: tool-result-pruner
+      name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+      config:
+        thresholdChars: 8192
+        headChars: 4096
+        tailChars: 1024
+
+# ── delegation and workflows ────────────────────────────────────────────────
+
+# The `subagents` registry and its spawn/fork backends live in the HOST
+# composition: the registry is a process singleton whose cross-session queries
+# the api-proxy serves to the browser, and a provider name may only be
+# registered once. This preset contributes the delegation TOOLS, which resolve
+# that host registry.
+#
+# `workflows` is different — nothing outside an agent reads it — so every row
+# that reaches it shares one entry-local realm here, and a consumer left
+# outside would resolve a host registry this preset does not populate.
+#
+# `tool-subagent-report` is host-plane for the same reason as the registry,
+# not because a preset may not want it: it registers a CONTINUABLE SETUP on
+# that singleton rather than a tool this agent calls, and the setup list is
+# not scope-aware — one copy per mounted preset means every child gets
+# `report` registered once per live session, which throws on the second.
+- id: delegation
+  name: cordis:group
+  group: true
+  isolate:
+    workflowEngine: true
+  config:
+    - id: tool-subagent-control
+      name: '@deepseek-ai/dsh-tool-subagent-control'
+
+    - id: tool-subagent-list-agents
+      name: '@deepseek-ai/dsh-tool-subagent-control/list-agents'
+
+    - id: tool-subagent
+      name: '@deepseek-ai/dsh-tool-subagent'
+      config:
+        provider: spawn
+        toolName: subagent
+        backgroundMode: continuable
+
+    - id: tool-subagent-fork
+      name: '@deepseek-ai/dsh-tool-subagent'
+      config:
+        provider: fork
+        toolName: subagent_fork
+        backgroundMode: continuable
+
+    # Product providers are host-plane singletons. Copy this preset, then
+    # remove `disabled` from either ordinary tool row to expose that product
+    # only to agents composed from the copy.
+    - id: tool-subagent-codex
+      name: '@deepseek-ai/dsh-tool-subagent'
+      disabled: true
+      config:
+        provider: codex
+        toolName: subagent_codex
+        enableRunInBackground: false
+        maxDepth: provider-managed
+
+    - id: tool-subagent-claude-code
+      name: '@deepseek-ai/dsh-tool-subagent'
+      disabled: true
+      config:
+        provider: claude-code
+        toolName: subagent_claude_code
+        enableRunInBackground: false
+        maxDepth: provider-managed
+
+    - id: workflow-worker-thread
+      name: '@deepseek-ai/dsh-workflow-worker-thread'
+      config:
+        provider: spawn
+
+    - id: tool-workflow
+      name: '@deepseek-ai/dsh-tool-workflow'
+
+    - id: tool-ralph
+      name: '@deepseek-ai/dsh-tool-ralph'
+      config:
+        subagentProvider: spawn
+        maxRounds: 64
+
+# ── remaining model-facing rows ─────────────────────────────────────────────
+
+- id: tool-ask-user
+  name: '@deepseek-ai/dsh-tool-ask-user'
+
+- id: tool-todo
+  name: '@deepseek-ai/dsh-tool-todo'
+  config:
+    allowParallelInProgress: true
+
+# The `web` service and its search provider stay in the host composition; only
+# the model-facing tool is per-session.
+- id: tool-web
+  name: '@deepseek-ai/dsh-tool-web'
+  config:
+    fetch: false
+    searchTimeoutMs: 60000

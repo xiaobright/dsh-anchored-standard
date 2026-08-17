@@ -1,0 +1,3 @@
+name: Anchored Standard (dual-anchor, experimental)
+description: Bootstrap with the Minimal preset's real tool pair (persistent bash + str_replace_editor) AND a 1024-token output cap, with no auto-injected workspace or skill context — running BOTH the schema anchor (path A) and the cap anchor (path B, issue #11) in parallel for stability — then expose the full Standard catalog after the first durable tool call or reply.
+order: 5
