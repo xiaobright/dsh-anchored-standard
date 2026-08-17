@@ -101,7 +101,7 @@ Three first-request levers decide the trajectory (issue #11):
    (26/32), independent of the tool descriptions. The base mode leaves this
    lever unset (`bootstrapMaxTokens` is opt-in).
 3. **Injected reminders** — the AGENTS.md/CLAUDE.md digest and the
-   available-skills reminder. With the skill catalog present the anchor did
+   available-skills reminder. With the skill catalog present, the anchor did
    not reproduce at all (0/9). The base mode now suppresses EVERY automatic
    injection during bootstrap at the harness's two unified injection paths
    (the `context-gate` plugin), not just the two measured ones.
