@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { apply, bashCandidates, name, inject } from '../shared/custom-bash.mjs'
+import { apply, bashCandidates, name, inject, normalizeGitBashWorkdir } from '../shared/custom-bash.mjs'
 
 function register(config) {
   const registered = []
@@ -89,6 +89,56 @@ test('execute passes the session cwd by default and honors an explicit workdir',
   assert.equal(spawnCalls[0].cwd, 'C:/work')
   await tool.execute({ command: 'pwd', workdir: 'D:/other' }, exec())
   assert.equal(spawnCalls[1].cwd, 'D:/other')
+})
+
+test('normalizeGitBashWorkdir converts /e/foo on Windows and leaves Unix paths alone', () => {
+  assert.equal(normalizeGitBashWorkdir('/e/yaogan-jingjiaozheng', 'win32'), 'E:\\yaogan-jingjiaozheng')
+  assert.equal(normalizeGitBashWorkdir('/e', 'win32'), 'E:\\')
+  assert.equal(normalizeGitBashWorkdir('/usr/bin', 'win32'), '/usr/bin')
+  assert.equal(normalizeGitBashWorkdir('/tmp', 'win32'), '/tmp')
+  assert.equal(normalizeGitBashWorkdir('/e/foo', 'linux'), '/e/foo')
+  assert.equal(normalizeGitBashWorkdir('D:/other', 'win32'), 'D:/other')
+})
+
+test('execute converts a Git Bash workdir on Windows (issue #55)', async () => {
+  const { tool, spawnCalls } = register({ bashPath: 'C:/Program Files/Git/bin/bash.exe' })
+  await tool.execute({ command: 'pwd', workdir: '/e/yaogan-jingjiaozheng' }, exec())
+  if (process.platform === 'win32') {
+    assert.equal(spawnCalls[0].cwd, 'E:\\yaogan-jingjiaozheng')
+  } else {
+    assert.equal(spawnCalls[0].cwd, '/e/yaogan-jingjiaozheng')
+  }
+})
+
+test('execute falls back to the session cwd when an explicit workdir is ENOENT (issue #55)', async () => {
+  const registered = []
+  const spawnCalls = []
+  const ctx = {
+    subprocess: {
+      async resolveExecutable(path) { return path },
+      spawn(options) {
+        spawnCalls.push(options)
+        if (options.cwd === 'D:/missing') {
+          return { done: Promise.reject(new Error('spawn C:\\Program Files\\Git\\bin\\bash.exe ENOENT')) }
+        }
+        return {
+          done: Promise.resolve({ exitCode: 0 }),
+          collected: {
+            stdout: { readFrom() { return { text: 'ok' } } },
+            stderr: { readFrom() { return { text: '' } } },
+          },
+        }
+      },
+    },
+    tools: { register(t) { registered.push(t) } },
+  }
+  apply(ctx)
+  const result = await registered[0].execute({ command: 'pwd', workdir: 'D:/missing' }, exec())
+  assert.equal(spawnCalls.length, 2)
+  assert.equal(spawnCalls[0].cwd, 'D:/missing')
+  assert.equal(spawnCalls[1].cwd, 'C:/work')
+  assert.match(result.text, /fell back to session cwd/)
+  assert.match(result.text, /ok/)
 })
 
 test('a non-zero exit throws with the captured output', async () => {
