@@ -138,3 +138,32 @@ test('the hint registers with prepend', () => {
   const { hookOptions } = register()
   assert.deepEqual(hookOptions['agent/pre-step'], { prepend: true })
 })
+
+test('regression: AGENTS.md below the git root still gets hinted (chain probing)', async () => {
+  // The observed failure mode: a session cwd nested below the git root
+  // carried AGENTS.md while the root itself did not. Root-only probing
+  // found nothing, so the hint silently never fired — the plugin's own
+  // docstring promises "walking up from the session cwd to the project
+  // root", and this pins that behavior.
+  const listeners = {}
+  const files = new Set(['/work/project/.git', '/work/project/sub/AGENTS.md'])
+  const fs = {
+    async resolve(target) { return target },
+    async stat(target) {
+      const path = target.replace(/\\/g, '/')
+      if (!files.has(path)) throw new Error('ENOENT')
+      return path.endsWith('.git') ? { type: 'directory' } : { type: 'file' }
+    },
+  }
+  const ctx = {
+    on(event, callback) { listeners[event] = callback },
+    get(service) { return service === 'fs' ? fs : undefined },
+    logger: { warn() {} },
+  }
+  apply(ctx, { promoteOn: 'either' })
+  const agent = { session: session([{ type: 'tool/call', seq: 1, data: {} }], { cwd: '/work/project/sub' }) }
+  const result = await listeners['agent/pre-step']({ agent }, async () => decision())
+  assert.equal(result.messages.length, 2, 'hint must be injected when the file lives below the git root')
+  assert.match(result.messages[1].content[0].text, /sub\/AGENTS\.md/)
+  assert.match(result.messages[1].content[0].text, /project root: \/work\/project/)
+})

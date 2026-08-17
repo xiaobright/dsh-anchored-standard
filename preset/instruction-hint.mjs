@@ -185,9 +185,25 @@ export function apply(ctx, config) {
       if (fs === undefined) return decision
       const cwd = session.header.cwd ?? process.cwd()
 
-      const projectFiles = []
       const root = await findProjectRoot(fs, cwd, signal)
-      projectFiles.push(...await presentInDir(fs, root, PROJECT_CANDIDATES, signal))
+      const projectFiles = []
+      // Probe the FULL chain from the session cwd up to (and including) the
+      // project root — AGENTS.md/CLAUDE.md may sit at ANY level (the session
+      // cwd can carry one while its git root does not), per the AGENTS.md
+      // convention and this plugin's own docstring ("project chain … walking
+      // up from the session cwd to the project root"). The previous
+      // implementation probed only the root directory and silently found
+      // nothing whenever the instruction file lived below it.
+      let probed = cwd
+      for (;;) {
+        for (const candidate of await presentInDir(fs, probed, PROJECT_CANDIDATES, signal)) {
+          projectFiles.push(probed === root ? candidate : joinPath(probed, candidate))
+        }
+        if (probed === root) break
+        const parent = parentPath(probed)
+        if (parent === probed || parent.length === 0) break
+        probed = parent
+      }
 
       const userGlobalFiles = []
       try {
