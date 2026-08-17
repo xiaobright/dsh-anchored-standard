@@ -12,7 +12,7 @@ on demand.
 This is a community project. It is not an official DeepSeek preset and is not
 affiliated with or endorsed by DeepSeek.
 
-Welcome to submit feedback on the plugin in the form of Issues or PRs. For ideas for new plugins or useful findings, please submit them under the [repository](https://github.com/0liveiraaa/DeepseekCotexplorations).
+Feel free to submit feedback on the plugin in the form of Issues or PRs. For ideas for new plugins or useful findings, please submit them under the [repository](https://github.com/0liveiraaa/DeepseekCotexplorations).
 
 ## Project status (2026-08-17)
 
