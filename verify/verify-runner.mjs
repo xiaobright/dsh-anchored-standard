@@ -29,6 +29,7 @@ import z from '@deepseek-ai/schemastery'
 import { installModelSelection } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
+import { createFirstAssistantCanceller } from './first-assistant-canceller.mjs'
 
 /** Stable Cordis plugin name. */
 export const name = 'verify-runner'
@@ -100,23 +101,21 @@ async function run(ctx, config, io) {
   const firstSeq = agent.session.seq
 
   // Optional: cancel as soon as the first assistant message is durable, so a
-  // verbose multi-tool run does not burn the whole task budget.
-  let cancelled = false
-  const watch = setInterval(() => {
-    if (cancelled) return
-    const hit = agent.session.events.some((event) => event.type === 'assistant/message' && event.seq >= firstSeq)
-    if (hit) {
-      cancelled = true
-      agent.cancel({ kind: 'user' })
-    }
-  }, 100)
+  // verbose multi-tool run does not burn the whole task budget. The watcher is
+  // scheduled ONLY when the mode is enabled (issues #56/#57): with the default
+  // `stopAfterFirstAssistant: false` the run must continue through promotion.
+  const firstAssistantWatch = createFirstAssistantCanceller({
+    agent,
+    firstSeq,
+    enabled: config.stopAfterFirstAssistant,
+  })
 
   agent.followup(createUserMessage({
     content: [{ type: 'text', text: config.task }],
     source: { kind: 'user' },
   }))
   await agent.whenIdle()
-  clearInterval(watch)
+  firstAssistantWatch?.stop()
   await sessions.flush(agent.session)
 
   // Report: session identity, every request header, then the first assistant reply.
