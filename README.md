@@ -115,7 +115,7 @@ however, gives up the Standard preset's broader tool set.
 
 Anchored Standard separates initial trajectory selection from later tool use:
 
-1. Keep the Minimal complete system prompt.
+1. Keep the complete Minimal system prompt.
 2. Expose the Minimal preset's REAL tool schemas — persistent `bash` +
    `str_replace_editor`, byte-identical to the official Minimal composition —
    on the first model request (lever 1 above).
