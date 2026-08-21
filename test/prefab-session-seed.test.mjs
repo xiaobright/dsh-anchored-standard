@@ -134,6 +134,96 @@ test('preset selection seeds after publication and ignores other or nonblank ses
   }
 })
 
+test('session created with the preset as default seeds on its first permission event', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-prefab-born-'))
+  try {
+    const handlers = new Map()
+    const errors = []
+    const ctx = {
+      on(type, callback) { handlers.set(type, callback) },
+      get(service) { return service === 'agents' ? this.agents : undefined },
+      logger: { error(message) { errors.push(message) } },
+    }
+    // A session CREATED with the preset: the header names it, and no
+    // agent-preset/selected event is ever emitted. The first
+    // permission/preset event must trigger seeding (agent may not exist yet).
+    const session = fakeSession(dir)
+    session.header.agentPreset = 'prefab-anchored-standard'
+    ctx.agents = { get(id) { return id === session.id ? undefined : undefined } }
+    apply(ctx, { templatePath: fixture(dir) })
+
+    session.listener = handlers.get('session/event')
+    session.append('permission/preset', { preset: 'workspace-write' })
+    await settle()
+    assert.equal(session.events.some((event) => event.type === 'turn/start'), true, 'born session must be seeded')
+    assert.equal(session.events.at(-1).data.title, 'Prefab Anchored Standard - Ready')
+    assert.deepEqual(errors, [], 'no agent on the born path must not error')
+
+    // The turn/start guard must prevent a later double-seed.
+    const countAfterFirst = session.events.filter((event) => event.type === 'turn/start').length
+    session.append('permission/preset', { preset: 'workspace-write' })
+    await settle()
+    assert.equal(session.events.filter((event) => event.type === 'turn/start').length, countAfterFirst, 'no double-seed')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('default-preset seeding synchronizes an agent published while skills are loading', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-prefab-born-race-'))
+  try {
+    const handlers = new Map()
+    let publishSkills
+    const skillsReady = new Promise((resolve) => { publishSkills = resolve })
+    let agent
+    const ctx = {
+      on(type, callback) { handlers.set(type, callback) },
+      get(service) {
+        if (service === 'agents') return { get() { return agent } }
+        if (service === 'skills') return { async list() { await skillsReady; return [] } }
+        return undefined
+      },
+      logger: { error(error) { throw new Error(error) } },
+    }
+    const session = fakeSession(dir)
+    session.header.agentPreset = 'prefab-anchored-standard'
+    apply(ctx, { templatePath: fixture(dir) })
+    session.listener = handlers.get('session/event')
+
+    session.append('permission/preset', { preset: 'workspace-write' })
+    await Promise.resolve()
+    agent = { session, status: 'idle', phase: { kind: 'idle', lastTurn: 0 } }
+    publishSkills()
+    await settle()
+
+    assert.equal(agent.phase.lastTurn, 1, 'late-published agent must see the seeded turn')
+    assert.equal(agent.phase.lastTurn + 1, 2)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('session with a different preset header ignores permission events', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-prefab-born-other-'))
+  try {
+    const handlers = new Map()
+    const ctx = {
+      on(type, callback) { handlers.set(type, callback) },
+      get() { return undefined },
+      logger: { error() {} },
+    }
+    const session = fakeSession(dir)
+    session.header.agentPreset = 'standard'
+    apply(ctx, { templatePath: fixture(dir) })
+    session.listener = handlers.get('session/event')
+    session.append('permission/preset', { preset: 'workspace-write' })
+    await settle()
+    assert.equal(session.events.some((event) => event.type === 'turn/start'), false, 'other preset must not seed')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('bundled two-turn template continues at turn three with a clean durable tool surface', () => {
   const template = loadPrefabTemplate()
   const plan = buildSeedPlan(template, 'D:\\workspace', '# current rules')

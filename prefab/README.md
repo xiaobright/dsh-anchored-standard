@@ -36,8 +36,10 @@ node .\prefab\install.mjs --confirm-dsh-closed --template project2
 
 This installs **Prefab Anchored Project2** as `prefab-anchored-project2`.
 
-Harness creates a blank session before mounting a selected preset. The bundled
-`prefab-session-seed.mjs` observes the committed preset selection, crosses the
+Harness can either mount this preset onto a blank session or create a session
+whose header already names it as the default preset. The bundled
+`prefab-session-seed.mjs` observes the committed preset selection in the first
+case and the first `permission/preset` event in the second, crosses the
 non-reentrant `Session.append` boundary with one microtask, and replays the two
 model-visible warm-up turns into that same session. It omits thousands of token
 stream chunks while retaining lifecycle events, messages, tool calls/results,
@@ -118,7 +120,8 @@ or profile can still be discovered and unlocked at runtime through
 - `template.jsonl`: the reviewed, bundled session template.
 - `template.jsonl.meta.json`: roll provenance and trajectory summary.
 - `templates/project2-benchmark.jsonl`: explicit opt-in benchmark template.
-- `prefab-session-seed.mjs`: automatic in-place hydration on mode selection.
+- `prefab-session-seed.mjs`: automatic in-place hydration on mode selection or
+  default-preset session creation.
 - `install.mjs`: one-command mode installation.
 - `instantiate.mjs`: legacy offline workspace-specific session instantiation.
 - `roll-runner.mjs` and `roll-prefab.mjs`: optional tooling for producing a

@@ -452,7 +452,17 @@ export function apply(ctx, config = {}) {
   const scheduled = new WeakSet()
 
   ctx.on('session/event', (session, event) => {
-    if (event.type !== 'agent-preset/selected' || event.data?.agentPreset !== presetId) return
+    // Trigger on either of two lifecycle events:
+    // 1. `agent-preset/selected` — the preset picker swapped THIS preset onto
+    //    an already-created blank session (the original trigger).
+    // 2. A session CREATED with this preset in its header (the default preset
+    //    path) never emits `agent-preset/selected` — the preset is composed at
+    //    creation, not swapped. Its first `permission/preset` event therefore
+    //    doubles as the "this preset is live" signal: seed on it too, so
+    //    default-preset sessions start from turn 3 instead of turn 1.
+    const selected = event.type === 'agent-preset/selected' && event.data?.agentPreset === presetId
+    const born = event.type === 'permission/preset' && session.header?.agentPreset === presetId
+    if (!selected && !born) return
     if (scheduled.has(session) || session.events.some((item) => item.type === 'turn/start')) return
     scheduled.add(session)
 
@@ -470,7 +480,10 @@ export function apply(ctx, config = {}) {
           // ReactLoopAgent snapshots the final turn in its constructor. Preset
           // selection happens later, so validate that cursor before appending a
           // lifecycle transcript and synchronize it immediately afterwards.
-          synchronizeAgentTurnCursor(agent, session)
+          // The agent may not exist yet on the born path (creation is still
+          // assembling the session) — skip cursor sync until it does; the
+          // turn/start guard keeps a later double-seed from firing.
+          if (agent !== undefined) synchronizeAgentTurnCursor(agent, session)
           const cwd = session.header?.cwd
           const agentsMd = loadInstructionBundle(cwd)
           const preliminary = buildSeedPlan(template, cwd, agentsMd)
@@ -479,7 +492,11 @@ export function apply(ctx, config = {}) {
             ? buildSeedPlan(template, cwd, agentsMd, skillResults)
             : preliminary
           if (seedSession(session, plan, title)) {
-            synchronizeAgentTurnCursor(agent, session)
+            // The default-preset path may publish its agent while the skill
+            // registry is being queried. Re-read after the await so an agent
+            // created in that window receives the seeded turn cursor.
+            const currentAgent = ctx.get('agents')?.get(session.id)
+            if (currentAgent !== undefined) synchronizeAgentTurnCursor(currentAgent, session)
           }
         } catch (error) {
           ctx.logger?.error?.(`${name}: failed to seed session ${session.id}: ${String(error?.stack ?? error)}`)

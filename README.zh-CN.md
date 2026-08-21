@@ -302,7 +302,8 @@ Prefab 模式推荐由 AI agent 一键安装：把本仓库交给编程 agent，
 `anchored-standard`。仓库中的每个模式目录都是自包含的：`zero-anchored-standard/`、
 `whoami-standard/`、`prefab/`、`eternal-minimal/`、`wire-think-standard/`、
 `combo-anchored/` 变体以同样方式安装，可只装其中一个、多个或全部，不依赖
-其他目录（见下文各自的章节）。`prefab/` 选择模式时会自动预填充内置模板；
+其他目录（见下文各自的章节）。`prefab/` 会为手动切换到该模式的会话，以及创建时
+已将其作为默认 preset 的会话自动预填充内置模板；
 按 [`prefab/README.md`](./prefab/README.md) 操作。
 
 PowerShell：

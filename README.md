@@ -361,7 +361,8 @@ repository is self-contained: the `zero-anchored-standard/`,
 `whoami-standard/`, `prefab/`, `eternal-minimal/`, `wire-think-standard/`, and
 `combo-anchored/` variants install the same way, alone or together, with no
 other directory required (see their sections below). `prefab/` automatically
-hydrates newly selected sessions; follow [`prefab/README.md`](./prefab/README.md).
+hydrates both sessions switched to it and sessions created with it as the
+default preset; follow [`prefab/README.md`](./prefab/README.md).
 
 PowerShell:
 
