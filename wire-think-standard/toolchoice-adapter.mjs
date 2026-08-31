@@ -38,6 +38,17 @@
  * Registering the same provider id twice (two presets both mounting this row)
  * throws DUPLICATE_ADAPTER at mount; the plugin catches that, warns once,
  * and leaves the engine to degrade to the zero-tool think condition.
+ *
+ * Named gateway support: the same vendored wire pipeline can point at a
+ * named OpenAI-compatible gateway instead of the DeepSeek endpoint. Setting
+ * `gateway: "orcarouter"` routes this adapter at the OrcaRouter gateway
+ * (https://api.orcarouter.ai/v1) with the `ORCAROUTER_API_KEY` env var and
+ * the `vendor/model` model namespace (e.g. `deepseek/deepseek-chat`, or the
+ * adaptive `orcarouter/auto` router), so the think-route condition reproduces
+ * over a gateway that adds adaptive routing, automatic failover, zero-markup
+ * inference, observability, and guardrails on the same endpoint. Row config
+ * still wins: an explicit `baseURL` / `apiKeyEnv` overrides the gateway
+ * defaults. The DeepSeek default is untouched when `gateway` is unset.
  */
 
 /** Cordis plugin name used by loader diagnostics. */
@@ -55,21 +66,50 @@ const DEFAULT_BASE_URL = 'https://api.deepseek.com'
 /** The terminal SSE sentinel (DeepSeek and OpenAI both send it). */
 const DONE = '[DONE]'
 
+/**
+ * Named OpenAI-compatible gateways this adapter can route at. Each entry
+ * pins the endpoint, the key env var, the provider label, and the advisory
+ * model namespace. Row config (`baseURL` / `apiKeyEnv`) still wins over
+ * these defaults.
+ */
+const GATEWAYS = {
+  orcarouter: {
+    baseURL: 'https://api.orcarouter.ai/v1',
+    apiKeyEnv: 'ORCAROUTER_API_KEY',
+    providerName: 'OrcaRouter (community think route)',
+    userAgent: 'orcarouter-harness-community-think-route-adapter/0.1.0 (dsh-plugin)',
+    catalogModels: ['deepseek/deepseek-chat', 'deepseek/deepseek-reasoner', 'orcarouter/auto'],
+  },
+}
+
 /** Advisory models — identical wire ids to the official catalog defaults. */
 const CATALOG_MODELS = ['deepseek-v4-pro', 'deepseek-v4-flash']
+
+/** Resolve the advisory catalog for the active gateway (default DeepSeek). */
+function catalogModels(gateway) {
+  return gateway?.catalogModels ?? CATALOG_MODELS
+}
 
 function nonEmptyString(value) {
   return typeof value === 'string' && value.length > 0 ? value : undefined
 }
 
 /**
- * Resolve one operation's connection facts: row config > `llm-deepseek`
- * settings section > environment. Re-read per request so a settings change
- * reaches the next call without re-registration.
+ * Resolve one operation's connection facts. With a named gateway the
+ * endpoint and key env are pinned by the gateway entry (row config still
+ * wins); otherwise the DeepSeek fallback chain applies: row config >
+ * `llm-deepseek` settings section > environment. Re-read per request so a
+ * settings change reaches the next call without re-registration.
  */
-function resolveConnection(ctx, config) {
+function resolveConnection(ctx, config, gateway) {
   let baseURL = nonEmptyString(config?.baseURL)
   let apiKeyEnv = nonEmptyString(config?.apiKeyEnv)
+  if (gateway !== undefined) {
+    // A named gateway pins its endpoint and key env; row config still wins.
+    baseURL ??= gateway.baseURL
+    apiKeyEnv ??= gateway.apiKeyEnv
+    return { baseURL: baseURL.replace(/\/+$/, ''), apiKeyEnv }
+  }
   if (baseURL === undefined || apiKeyEnv === undefined) {
     try {
       const described = ctx.get('settings')?.describe?.() ?? []
@@ -85,6 +125,19 @@ function resolveConnection(ctx, config) {
   baseURL ??= nonEmptyString(process.env.DEEPSEEK_BASE_URL) ?? DEFAULT_BASE_URL
   apiKeyEnv ??= 'DEEPSEEK_API_KEY'
   return { baseURL: baseURL.replace(/\/+$/, ''), apiKeyEnv }
+}
+
+/**
+ * Resolve the named gateway entry; an unknown name is a config error (fail
+ * the mount loudly, never silently fall back to the DeepSeek default).
+ */
+function parseGateway(value) {
+  if (value === undefined) return undefined
+  const gateway = GATEWAYS[value]
+  if (gateway === undefined) {
+    throw new TypeError(`${name}: gateway must be one of ${Object.keys(GATEWAYS).join(', ')}, got ${JSON.stringify(value)}`)
+  }
+  return gateway
 }
 
 /** Resolve the bearer token: credentials service first, trusted env second. */
@@ -415,10 +468,18 @@ export async function* translateChunks(payloads, onLogprobs) {
   throw error
 }
 
-/** Register the sibling `tool_choice`-capable DeepSeek route. */
+/**
+ * Register the sibling `tool_choice`-capable route — the DeepSeek think
+ * route by default, or a named OpenAI-compatible gateway (`gateway:
+ * "orcarouter"`).
+ */
 export function apply(ctx, config) {
   const provider = nonEmptyString(config?.provider) ?? DEFAULT_PROVIDER
+  const gateway = parseGateway(config?.gateway)
   const logprobs = config?.logprobs === true
+  const providerName = gateway?.providerName ?? 'DeepSeek (community think route)'
+  const models = catalogModels(gateway)
+  const userAgent = gateway?.userAgent ?? 'deepseek-harness-community-think-route-adapter/0.1.0 (dsh-plugin)'
 
   let warned = false
   const warnOnce = (message) => {
@@ -433,13 +494,13 @@ export function apply(ctx, config) {
 
   const adapter = {
     providerInfo(id) {
-      return { id, name: 'DeepSeek (community think route)' }
+      return { id, name: providerName }
     },
     providerRetryPolicy() {
       return undefined
     },
     async listModels(id) {
-      return CATALOG_MODELS.map((model) => ({
+      return models.map((model) => ({
         provider: id,
         id: model,
         name: model,
@@ -465,14 +526,14 @@ export function apply(ctx, config) {
       }
     },
     async * stream(options) {
-      const connection = resolveConnection(ctx, config)
+      const connection = resolveConnection(ctx, config, gateway)
       const apiKey = await resolveApiKey(ctx, connection.apiKeyEnv)
       const body = serializeThinkRequest(options, { toolChoice: config?.toolChoice, logprobs })
       const headers = {
         authorization: `Bearer ${apiKey}`,
         'content-type': 'application/json',
         accept: 'text/event-stream',
-        'user-agent': 'deepseek-harness-community-think-route-adapter/0.1.0 (dsh-plugin)',
+        'user-agent': userAgent,
         ...(options.sessionId !== undefined ? { 'x-deepseek-harness-session-id': String(options.sessionId) } : {}),
         ...(options.purpose === 'compaction' ? { 'x-deepseek-harness-compact': '1' } : {}),
       }

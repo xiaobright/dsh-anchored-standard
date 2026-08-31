@@ -248,3 +248,70 @@ test('a missing API key fails with MISSING_CREDENTIAL before any fetch', async (
     if (savedKey !== undefined) process.env.DEEPSEEK_API_KEY = savedKey
   }
 })
+
+test('an unknown gateway name fails the mount loudly', () => {
+  assert.throws(
+    () => registerAdapterCtx({ gateway: 'not-a-gateway' }),
+    (error) => error instanceof TypeError && /orcarouter/.test(error.message),
+  )
+})
+
+test('gateway orcarouter pins the endpoint, key env, catalog, and provider label', async () => {
+  const { registration } = registerAdapterCtx({ gateway: 'orcarouter' })
+  assert.equal(registration.adapter.providerInfo('deepseek-wire-think').name, 'OrcaRouter (community think route)')
+  const models = await registration.adapter.listModels('deepseek-wire-think')
+  assert.deepEqual(models.map((model) => model.id), ['deepseek/deepseek-chat', 'deepseek/deepseek-reasoner', 'orcarouter/auto'])
+  const resolved = await registration.adapter.resolveModel('deepseek-wire-think', 'orcarouter/auto')
+  assert.equal(resolved.context.contextWindow, 1_000_000)
+})
+
+test('gateway orcarouter streams a think response over the OrcaRouter endpoint', async () => {
+  const savedKey = process.env.ORCAROUTER_API_KEY
+  process.env.ORCAROUTER_API_KEY = 'test-key'
+  const { registration } = registerAdapterCtx({ gateway: 'orcarouter', logprobs: false })
+  const bodies = []
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = async (url, init) => {
+    bodies.push({ url, init })
+    return new Response(sseStream([
+      'data: {"choices":[{"delta":{"content":"Plan ready"}}]}\n\n',
+      'data: {"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":8,"completion_tokens":4}}\n\n',
+      'data: [DONE]\n\n',
+    ]), { status: 200, headers: { 'content-type': 'text/event-stream' } })
+  }
+  try {
+    const chunks = []
+    for await (const chunk of registration.adapter.stream({ ...OPTIONS(), model: 'orcarouter/auto' })) chunks.push(chunk)
+    assert.equal(bodies[0].url, 'https://api.orcarouter.ai/v1/chat/completions')
+    assert.equal(bodies[0].init.headers.authorization, 'Bearer test-key')
+    const sentBody = JSON.parse(bodies[0].init.body)
+    assert.equal(sentBody.model, 'orcarouter/auto')
+    assert.equal(sentBody.tool_choice, 'none')
+    const textDeltas = chunks.filter((chunk) => chunk.type === 'text-delta').map((chunk) => chunk.text).join('')
+    assert.equal(textDeltas, 'Plan ready')
+  } finally {
+    globalThis.fetch = originalFetch
+    if (savedKey === undefined) delete process.env.ORCAROUTER_API_KEY
+    else process.env.ORCAROUTER_API_KEY = savedKey
+  }
+})
+
+test('gateway orcarouter lets explicit row config override the pinned defaults', async () => {
+  process.env.ORCAROUTER_API_KEY = 'test-key'
+  const { registration } = registerAdapterCtx({ gateway: 'orcarouter', baseURL: 'https://example.test', apiKeyEnv: 'ORCAROUTER_API_KEY' })
+  const originalFetch = globalThis.fetch
+  const urls = []
+  globalThis.fetch = async (url, init) => {
+    urls.push(url)
+    return new Response(sseStream(['data: [DONE]\n\n']), { status: 200 })
+  }
+  try {
+    const chunks = []
+    for await (const chunk of registration.adapter.stream(OPTIONS())) chunks.push(chunk)
+    assert.ok(chunks.some((chunk) => chunk.type === 'finish'))
+    assert.equal(urls[0], 'https://example.test/chat/completions')
+  } finally {
+    globalThis.fetch = originalFetch
+    delete process.env.ORCAROUTER_API_KEY
+  }
+})

@@ -34,7 +34,9 @@
 # degrades to the zero-tool think condition. MUST stay the FIRST local row so
 # the route exists before the engine's first probe. Set `logprobs: true` for
 # the opt-in logprobs research hook (mean token logprob per think request,
-# logged by the adapter).
+# logged by the adapter). Set `gateway: orcarouter` to route the same think
+# condition at the OrcaRouter gateway (OpenAI-compatible endpoint, vendor/model
+# model namespace incl. the adaptive `orcarouter/auto` router, ORCAROUTER_API_KEY).
 - id: toolchoice-adapter
   name: ./toolchoice-adapter.mjs
 

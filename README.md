@@ -264,8 +264,9 @@ whether subagents also take the anchor turn.
 | Key | Default | Meaning |
 |---|---|---|
 | `provider` | `deepseek-wire-think` | The sibling route id the adapter owns; registering an id twice throws DUPLICATE_ADAPTER (caught, degraded). |
+| `gateway` | *(none)* | Route the think condition at a named OpenAI-compatible gateway instead of the DeepSeek endpoint. `orcarouter` targets the OrcaRouter gateway (`https://api.orcarouter.ai/v1`, `ORCAROUTER_API_KEY`) with a `vendor/model` model namespace (`deepseek/deepseek-chat`, `deepseek/deepseek-reasoner`, or the adaptive `orcarouter/auto` router). An unknown name fails the mount. |
 | `toolChoice` | `none` | The wire `tool_choice` sent whenever tool definitions are present. |
-| `baseURL` / `apiKeyEnv` | settings/env | Row config first, then the `llm-deepseek` settings section, then `DEEPSEEK_BASE_URL` / `DEEPSEEK_API_KEY`. |
+| `baseURL` / `apiKeyEnv` | settings/env | Row config first, then the `llm-deepseek` settings section, then `DEEPSEEK_BASE_URL` / `DEEPSEEK_API_KEY`. With `gateway` set, the gateway's endpoint/key env are the defaults and row config still wins. |
 | `logprobs` | `false` | Opt-in research hook: request token logprobs and log a per-request mean summary (no StreamChunk surface exists). |
 
 `wire-think` (in `wire-think-standard/`): same `mode` / `suppressedContextSources` /
