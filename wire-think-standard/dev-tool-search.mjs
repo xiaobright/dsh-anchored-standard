@@ -55,7 +55,7 @@ function toJsonSchema(spec) {
  */
 const UNLOCKABLE_INDEX = [
   'web_search — internet search and web retrieval',
-  'subagent / subagent_fork — delegate work to sub-agents',
+  'subagent / subagent_fork / list_subagent_models — delegate work to sub-agents and choose their LLM',
   'workflow — run multi-agent workflow scripts',
   'ralph — fresh-agent iterative loop',
   'create_goal / get_goal / update_goal — long-running goals',
