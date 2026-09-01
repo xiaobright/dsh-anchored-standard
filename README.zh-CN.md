@@ -86,6 +86,9 @@ harness 兼容性跟进）。机制结论、剂量实验数据与工具链（con
 1. **工具 schema**——adapter 默认 maxTokens（256000）下的决定变量。真实 Minimal 对
    5/5 锚定；所有 standard 系 schema 11/11 落入 standard-like。
 2. **输出预算**——首请求 1024 封顶同样能锚定轨迹（26/32），且独立于工具描述。
+   该测量的首轮回复都装得进帽值；一旦首轮实际输出超过帽值，截断-续写循环反而放大
+   漂移（we 指纹有帽 0.17 vs 无帽 0.98，见
+   [#85](https://github.com/xiaobright/dsh-anchored-standard/issues/85)）。
    基础模式不设此杠杆（`bootstrapMaxTokens` 为 opt-in）。
 3. **注入提醒**——AGENTS.md/CLAUDE.md 摘要和可用技能提醒。技能目录在场时锚定完全
    无法复现（0/9）；bootstrap 期间两者都被剥离。
@@ -179,7 +182,7 @@ FIRST 行——瀑布注册顺序使门成为最外层变换；插件本体在 `
 |---|---|---|
 | `bootstrapTools` | `[bash, str_replace_editor]` | 请求 #1 可见的工具。 |
 | `promoteOn` | `either` | 晋升触发：`either` / `tool-call` / `assistant-message`。 |
-| `bootstrapMaxTokens` | 未设 | 请求 #1 的可选输出封顶；晋升后剥离。 |
+| `bootstrapMaxTokens` | 未设 | 请求 #1 的可选输出封顶；晋升后剥离。帽值低于首轮实际输出时会截断并放大漂移（[#85](https://github.com/xiaobright/dsh-anchored-standard/issues/85)），故默认不设。 |
 | `includeSubagents` | `false` | 子 agent 同样走 bootstrap 阶段（基础模式设 `true`）。 |
 | `compactionTools` | `[]` | compaction 边界到再晋升之间可用的额外工具。 |
 

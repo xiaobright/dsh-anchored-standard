@@ -100,8 +100,11 @@ Three first-request levers decide the trajectory (issue #11):
    (256000). The real Minimal pair anchored 5/5; every standard-family schema
    fell standard-like 11/11.
 2. **Output budget** — a 1024 first-request cap also anchored the trajectory
-   (26/32), independent of the tool descriptions. The base mode leaves this
-   lever unset (`bootstrapMaxTokens` is opt-in).
+   (26/32), independent of the tool descriptions. That measurement kept the
+   first round inside the cap; when the first reply exceeds it, the
+   truncation-continuation loop amplifies drift instead (we-fingerprint 0.17
+   capped vs 0.98 uncapped, [#85](https://github.com/xiaobright/dsh-anchored-standard/issues/85)).
+   The base mode leaves this lever unset (`bootstrapMaxTokens` is opt-in).
 3. **Injected reminders** — the AGENTS.md/CLAUDE.md digest and the
    available-skills reminder. With the skill catalog present, the anchor did
    not reproduce at all (0/9). The base mode now suppresses EVERY automatic
@@ -221,7 +224,7 @@ frozen to the configuration its recorded measurements were taken under).
 |---|---|---|
 | `bootstrapTools` | `[bash, str_replace_editor]` | Tools visible on request #1. |
 | `promoteOn` | `either` | Promotion trigger: `either`, `tool-call`, or `assistant-message`. |
-| `bootstrapMaxTokens` | unset | Optional output cap for request #1; stripped after promotion. |
+| `bootstrapMaxTokens` | unset | Optional output cap for request #1; stripped after promotion. A cap below the first round's actual output truncates it and amplifies drift ([#85](https://github.com/xiaobright/dsh-anchored-standard/issues/85)) — the default stays unset for this reason. |
 | `includeSubagents` | `false` | Subagents take the bootstrap phase too (`true` in the base mode). |
 | `compactionTools` | `[]` | Extra tools available between a compaction boundary and re-promotion. |
 

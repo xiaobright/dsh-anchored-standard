@@ -29,6 +29,7 @@
 - [@UraraO](https://github.com/UraraO)——修复默认 preset 直接创建的会话跳过轨迹预填充的问题，以 `permission/preset` 作为 born 路径的可靠触发点并堵上 await 后的 agent 竞态（[#77](https://github.com/xiaobright/dsh-anchored-standard/pull/77)）。
 - [@gwL955](https://github.com/gwL955)——以真实会话日志定位 dev_tool_search 全 token AND 匹配导致长查询必然空结果、模型只搜不解锁的双重缺陷，给出模糊打分排序与解锁路径教学的修复及回归测试（[#80](https://github.com/xiaobright/dsh-anchored-standard/pull/80)，在 [#31](https://github.com/xiaobright/dsh-anchored-standard/pull/31)、[#32](https://github.com/xiaobright/dsh-anchored-standard/issues/32) 的基础上推进）。
 - [@mbzmr](https://github.com/mbzmr)——以修复前后的完整 session 导出证据复现极简 persona 下的身份漂移（自称 Claude），验证一行身份句配方不影响任何机械锚定指标，并按 #49/#63 的证据标准将其记录为 README 已知行为（[#81](https://github.com/xiaobright/dsh-anchored-standard/issues/81)、[#82](https://github.com/xiaobright/dsh-anchored-standard/pull/82)）。
+- [@heiheiha798](https://github.com/heiheiha798)——将 7 个 preset 的 subagent 委派配置逐行对齐 dsh 0.1.2-alpha.3 官方 standard preset（`modelSelectionSettings` 与 `backgroundMode` 迁移），并在 `dev_tool_search` 可解锁目录中收录 `list_subagent_models`（[#87](https://github.com/xiaobright/dsh-anchored-standard/pull/87)）。
 
 ## 研究与独立复现
 
@@ -36,10 +37,11 @@
 - [@MolecularFullerene](https://github.com/MolecularFullerene)——完成首请求工具 schema 的 2×2 消融与 Request #2 协议实验，并将结果提交至研究仓库。
 - [@TipsyDrifter](https://github.com/TipsyDrifter)——完成 3×3 随机区组独立复现，确认轨迹锚定稳定，同时指出能力增益在小样本下仍未确定（[#65](https://github.com/xiaobright/dsh-anchored-standard/issues/65)）。
 - [@JimMilk](https://github.com/JimMilk)——完成 macOS、Windows 和 Linux 三环境共 11 轮评测，提供未复现 98/99 的完整记录与工具链问题分析（[#51](https://github.com/xiaobright/dsh-anchored-standard/issues/51)）。
+- [@AndyZHENG0715](https://github.com/AndyZHENG0715)——在 anchored-standard 框架上独立完成 40+ 会话、10 变体的对照实验，量化首轮输出帽的截断-续写漂移、锚定门对首回合委派的静默降级与 both 模式 restrict 收窄 SDK 问题（数据与 both-anchored preset 见研究仓库 [DeepseekCotexplorations#17](https://github.com/0liveiraaa/DeepseekCotexplorations/pull/17)，反馈见 [#85](https://github.com/xiaobright/dsh-anchored-standard/issues/85)）。
 - [@1127353621zxm-netizen](https://github.com/1127353621zxm-netizen)——整理 DSH 会话导入导出、zstd 多帧兼容和插件 JSON Schema 修复工具。
 
 同样感谢所有提交过 Issue、尚未合并但提供了设计或修复思路的 PR 作者，以及参与测试、答疑和传播的社区成员。很多关键问题最初都来自一条看似普通的使用反馈，无法在这里逐一列出。
 
 完整记录可在 [Contributors](https://github.com/xiaobright/dsh-anchored-standard/graphs/contributors)、[Pull Requests](https://github.com/xiaobright/dsh-anchored-standard/pulls?q=is%3Apr) 和 [Issues](https://github.com/xiaobright/dsh-anchored-standard/issues?q=is%3Aissue) 中查阅；实验材料与研究贡献见 [DeepseekCotexplorations](https://github.com/0liveiraaa/DeepseekCotexplorations)。
 
-> 统计截至 2026-08-26：主仓库共有 25 个已合并 PR，其中包括 17 位外部 PR 作者；此外还有通过协作分支、审查合并和研究仓库参与项目的贡献者。GitHub 账号与本地 Git 作者邮箱的映射可能造成贡献计数差异，因此这里以可核验的实际贡献内容为主，而不是按 commit 数量排序。
+> 统计截至 2026-09-01：主仓库共有 26 个已合并 PR，其中包括 18 位外部 PR 作者；此外还有通过协作分支、审查合并和研究仓库参与项目的贡献者。GitHub 账号与本地 Git 作者邮箱的映射可能造成贡献计数差异，因此这里以可核验的实际贡献内容为主，而不是按 commit 数量排序。
