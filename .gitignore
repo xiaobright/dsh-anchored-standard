@@ -12,4 +12,6 @@ verify/wd/
 # replacements still require manual review before they are committed.
 prefab/patch.generated.yml
 prefab/generic-candidate*.jsonl*
-HANDOFF.md
+# Local AI-session handoff notes — never publish (contain machine paths,
+# working habits, and maintenance playbook details).
+HANDOFF*.md
