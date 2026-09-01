@@ -227,6 +227,7 @@
       config:
         provider: spawn
         toolName: subagent
+        modelSelectionSettings: true
         backgroundMode: continuable
 
     - id: tool-subagent-fork
@@ -245,7 +246,7 @@
       config:
         provider: codex
         toolName: subagent_codex
-        enableRunInBackground: false
+        backgroundMode: one-shot
         maxDepth: provider-managed
 
     - id: tool-subagent-claude-code
@@ -254,7 +255,7 @@
       config:
         provider: claude-code
         toolName: subagent_claude_code
-        enableRunInBackground: false
+        backgroundMode: one-shot
         maxDepth: provider-managed
 
     - id: workflow-worker-thread
