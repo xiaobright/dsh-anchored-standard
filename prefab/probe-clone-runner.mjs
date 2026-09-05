@@ -87,12 +87,12 @@ async function run(ctx, config, io) {
   // The seeder hydrates asynchronously (skill re-render); a seeded session
   // carries the template's turn/start events.
   const deadline = Date.now() + config.seedTimeoutMs
-  while (Date.now() < deadline && !agent.session.events.some((event) => event.type === 'turn/start')) {
+  while (Date.now() < deadline && !(agent.session.snapshotEvents ? agent.session.snapshotEvents() : (agent.session.events ?? [])).some((event) => event.type === 'turn/start')) {
     await sleep(25)
   }
-  const seeded = agent.session.events.some((event) => event.type === 'turn/start')
-  const seededTurns = agent.session.events.filter((event) => event.type === 'turn/start').length
-  const seededUnlocks = agent.session.events.some((event) =>
+  const seeded = (agent.session.snapshotEvents ? agent.session.snapshotEvents() : (agent.session.events ?? [])).some((event) => event.type === 'turn/start')
+  const seededTurns = (agent.session.snapshotEvents ? agent.session.snapshotEvents() : (agent.session.events ?? [])).filter((event) => event.type === 'turn/start').length
+  const seededUnlocks = (agent.session.snapshotEvents ? agent.session.snapshotEvents() : (agent.session.events ?? [])).some((event) =>
     event.type === 'tool/call' && event.data?.name === 'dev_tool_search')
   if (!seeded) {
     internals.stdout.write(`PROBE_RESULT: ${JSON.stringify({ ok: false, error: 'session did not seed within timeout', sessionId: String(agent.session.id) })}\n`)
@@ -106,7 +106,7 @@ async function run(ctx, config, io) {
   let cancelled = false
   const watch = setInterval(() => {
     if (cancelled) return
-    const hit = agent.session.events.some((event) => event.type === 'assistant/message' && event.seq >= startSeq)
+    const hit = (agent.session.snapshotEvents ? agent.session.snapshotEvents() : (agent.session.events ?? [])).some((event) => event.type === 'assistant/message' && event.seq >= startSeq)
     if (hit) {
       cancelled = true
       agent.cancel({ kind: 'user' })
@@ -121,7 +121,7 @@ async function run(ctx, config, io) {
   clearInterval(watch)
   await sessions.flush(agent.session)
 
-  const first = agent.session.events.find((event) => event.type === 'assistant/message' && event.seq >= startSeq)
+  const first = (agent.session.snapshotEvents ? agent.session.snapshotEvents() : (agent.session.events ?? [])).find((event) => event.type === 'assistant/message' && event.seq >= startSeq)
   if (first === undefined) {
     internals.stdout.write(`PROBE_RESULT: ${JSON.stringify({ ok: false, error: 'no assistant message recorded', sessionId: String(agent.session.id), seeded: true })}\n`)
     io.exit(5)

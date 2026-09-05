@@ -207,8 +207,8 @@ export function apply(ctx, config) {
    */
   const unlockedFor = (session) => {
     const unlocked = new Set()
-    if (session === undefined || !Array.isArray(session.events)) return unlocked
-    for (const event of session.events) {
+    if (session === undefined || !Array.isArray((session.snapshotEvents ? session.snapshotEvents() : (session.events ?? [])))) return unlocked
+    for (const event of (session.snapshotEvents ? session.snapshotEvents() : (session.events ?? []))) {
       if (event.type !== 'tool/call') continue
       if (event.data?.name !== 'dev_tool_search') continue
       let args

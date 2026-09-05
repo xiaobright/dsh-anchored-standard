@@ -88,7 +88,7 @@ async function run(ctx, config, io) {
   const messages = []
   const collectedSeqs = new Set()
   const collect = () => {
-    for (const event of agent.session.events) {
+    for (const event of (agent.session.snapshotEvents ? agent.session.snapshotEvents() : (agent.session.events ?? []))) {
       if (event.seq < startSeq || event.type !== 'assistant/message') continue
       if (collectedSeqs.has(event.seq)) continue
       const reasoning = (event.data.message?.content ?? []).find((block) => block.type === 'reasoning')
@@ -122,7 +122,7 @@ async function run(ctx, config, io) {
   // The anchor turn's FIRST block is the trajectory the whole template sells:
   // it must open in the collaborative voice even when later steps narrate.
   const anchorWeFirst = classified.length > 0 && classified[0].weFirst
-  const effectiveReasoningCount = agent.session.events.filter((event) =>
+  const effectiveReasoningCount = (agent.session.snapshotEvents ? agent.session.snapshotEvents() : (agent.session.events ?? [])).filter((event) =>
     event.seq >= startSeq
     && event.type === 'assistant/message'
     && event.data.message?.content?.some((block) => block.type === 'reasoning')
@@ -132,7 +132,7 @@ async function run(ctx, config, io) {
   let unlockedNames = []
   let readAgentsMd = false
   let skillSearched = false
-  for (const event of agent.session.events) {
+  for (const event of (agent.session.snapshotEvents ? agent.session.snapshotEvents() : (agent.session.events ?? []))) {
     if (event.seq < startSeq) continue
     if (event.type !== 'tool/call') continue
     if (event.data.name === 'dev_tool_search') {
