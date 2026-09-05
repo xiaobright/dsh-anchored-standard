@@ -32,7 +32,7 @@ export const ANCHOR_TEXT = 'This round is a test. Tools are not open yet; all to
 /** Fresh sessions (no prior user message) get the anchor turn. */
 function isFreshSession(agent, includeSubagents = false) {
   if (!includeSubagents && (agent.session.header.delegationDepth ?? 0) > 0) return false
-  return !agent.session.events.some((event) => event.type === 'user/message')
+  return !(agent.session.snapshotEvents ? agent.session.snapshotEvents() : (agent.session.events ?? [])).some((event) => event.type === 'user/message')
 }
 
 /** Register the first-message anchor injection. */

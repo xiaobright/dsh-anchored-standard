@@ -112,8 +112,8 @@ export function apply(ctx, config) {
     let entry = state.get(session.id)
     if (entry === undefined) {
       entry = { turns: new Map(), lastTurn: -1 }
-      if (Array.isArray(session.events)) {
-        for (const event of session.events) {
+      if (Array.isArray((session.snapshotEvents ? session.snapshotEvents() : (session.events ?? [])))) {
+        for (const event of (session.snapshotEvents ? session.snapshotEvents() : (session.events ?? []))) {
           if (event.type !== 'assistant/chunk') continue
           const turn = event.data?.turn
           if (typeof turn !== 'number' || !Number.isFinite(turn)) continue
