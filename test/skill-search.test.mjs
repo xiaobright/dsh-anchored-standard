@@ -106,3 +106,20 @@ test('a throwing skills service degrades to a message, never throws', async () =
   const result = await search.execute({ query: 'pdf' }, exec())
   assert.match(result.text, /skill_search unavailable/)
 })
+
+test('skill_search matches a long natural query by token hits, ranked (#80 semantics)', async () => {
+  const { registered } = register([
+    { name: 'pdf', description: 'convert documents to PDF and merge' },
+    { name: 'docx', description: 'work with word document files' },
+    { name: 'unrelated', description: 'game walkthroughs' },
+  ])
+  const search = registered.find((tool) => tool.name === 'skill_search')
+  // Under the old AND-over-all-tokens filter this returned "No skills match"
+  // even though every word appears across the catalog.
+  const result = await search.execute({ query: 'convert word document to pdf' }, exec())
+  assert.match(result.text, /pdf:/)
+  assert.match(result.text, /docx:/)
+  assert.doesNotMatch(result.text, /unrelated/)
+  // pdf hits 3 tokens (convert/pdf/…), docx hits 2 (word/document): ranked.
+  assert.ok(result.text.indexOf('pdf:') < result.text.indexOf('docx:'))
+})
