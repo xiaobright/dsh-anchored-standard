@@ -376,3 +376,70 @@ test('bashCandidates derives the portable mingw64 layout and skips an unresolved
   assert.deepEqual(bashCandidates(env, 'git'), envOnly)
   assert.deepEqual(bashCandidates(env, undefined), envOnly)
 })
+
+test('the configured timeoutMs aborts a never-exiting command', async () => {
+  const registered = []
+  let spawnedSignal
+  const ctx = {
+    subprocess: {
+      async resolveExecutable(path) {
+        return path
+      },
+      spawn(options) {
+        spawnedSignal = options.signal
+        return {
+          // Resolve only when the spawn signal aborts — the shape a real
+          // hanging child takes once the deadline fires.
+          done: new Promise((_resolve, reject) => {
+            options.signal.addEventListener('abort', () => reject(options.signal.reason), { once: true })
+          }),
+          collected: {
+            stdout: { readFrom() { return { text: '' } } },
+            stderr: { readFrom() { return { text: '' } } },
+          },
+        }
+      },
+    },
+    tools: { register(tool) { registered.push(tool) } },
+  }
+  apply(ctx, { timeoutMs: 40 })
+  const started = Date.now()
+  await assert.rejects(
+    registered[0].execute({ command: 'npm run dev' }, exec()),
+    /timed out after 40ms/,
+  )
+  const elapsed = Date.now() - started
+  assert.ok(spawnedSignal !== undefined, 'spawn must receive a signal')
+  assert.ok(spawnedSignal.aborted, 'the composed signal must have aborted')
+  assert.ok(elapsed < 5000, `execute must return promptly, took ${elapsed}ms`)
+})
+
+test('an external abort still propagates before the deadline', async () => {
+  const registered = []
+  const external = new AbortController()
+  const ctx = {
+    subprocess: {
+      async resolveExecutable(path) {
+        return path
+      },
+      spawn(options) {
+        return {
+          done: new Promise((_resolve, reject) => {
+            options.signal.addEventListener('abort', () => reject(options.signal.reason), { once: true })
+          }),
+          collected: {
+            stdout: { readFrom() { return { text: '' } } },
+            stderr: { readFrom() { return { text: '' } } },
+          },
+        }
+      },
+    },
+    tools: { register(tool) { registered.push(tool) } },
+  }
+  apply(ctx, { timeoutMs: 60000 })
+  setTimeout(() => external.abort(new Error('turn cancelled')), 20)
+  await assert.rejects(
+    registered[0].execute({ command: 'sleep 1000' }, { ...exec(), signal: external.signal }),
+    /turn cancelled/,
+  )
+})

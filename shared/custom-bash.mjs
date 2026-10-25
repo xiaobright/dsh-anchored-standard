@@ -198,7 +198,13 @@ export function apply(ctx, config) {
         ? args.workdir
         : sessionCwd
       const workdir = normalizeGitBashWorkdir(requested)
-      const signal = exec?.signal
+      // The subprocess seam has no timeout of its own ("the caller owns
+      // deadlines; this seam only reacts to the abort"), so compose the
+      // configured timeoutMs into the spawn signal — without it a
+      // never-exiting command (dev server, a prompt waiting on a password)
+      // hangs the tool call until the turn is cancelled outright.
+      const deadline = AbortSignal.timeout(timeoutMs)
+      const signal = exec?.signal !== undefined ? AbortSignal.any([exec.signal, deadline]) : deadline
       const spawnOnce = (cwd) => ctx.subprocess.spawn({
         argv: [shell, '-c', args.command],
         ...cwd !== undefined ? { cwd } : {},
@@ -207,7 +213,7 @@ export function apply(ctx, config) {
           stdout: { maxBytes: maxOutputBytes },
           stderr: { maxBytes: maxOutputBytes },
         },
-        ...signal !== undefined ? { signal } : {},
+        signal,
         graceMs: 3000,
       })
       let handle
@@ -217,6 +223,9 @@ export function apply(ctx, config) {
         handle = spawnOnce(workdir)
         outcome = await handle.done
       } catch (error) {
+        if (deadline.aborted) {
+          throw new Error(`bash timed out after ${timeoutMs}ms: ${args.command}`)
+        }
         const fallback = sessionCwd !== undefined ? normalizeGitBashWorkdir(sessionCwd) : undefined
         if (
           requested !== undefined
