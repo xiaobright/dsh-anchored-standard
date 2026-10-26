@@ -70,11 +70,25 @@ export function apply(ctx) {
           cwd: exec?.agent?.session?.header?.cwd,
           signal: exec?.signal,
         })
-        const matches = all.filter((skill) => {
-          if (wanted.length === 0) return true
-          const haystack = tokens(`${skill.name} ${skill.description ?? ''} ${skill.whenToUse ?? ''}`).join(' ')
-          return wanted.every((token) => haystack.includes(token))
-        })
+        // Score instead of AND-filter (the same defect dev-tool-search fixed
+        // in #80): a long natural query ("convert word document to pdf")
+        // matched NOTHING under wanted.every(), because no single skill
+        // mentions every token. Exact name match ranks first; otherwise every
+        // skill matching at least one token competes, ordered by hit count.
+        const scored = all
+          .map((skill) => {
+            const haystack = tokens(`${skill.name} ${skill.description ?? ''} ${skill.whenToUse ?? ''}`).join(' ')
+            let score = 0
+            for (const token of wanted) if (haystack.includes(token)) score += 1
+            return {
+              skill,
+              score,
+              exact: wanted.includes(skill.name.toLowerCase()),
+            }
+          })
+          .filter((entry) => wanted.length === 0 || entry.exact || entry.score >= 1)
+          .sort((a, b) => (b.exact - a.exact) || (b.score - a.score) || a.skill.name.localeCompare(b.skill.name))
+        const matches = scored.map((entry) => entry.skill)
         const head = matches.slice(0, MAX_RESULTS)
         const lines = head.map((skill) => {
           const desc = (skill.description || '').split('\n')[0]
