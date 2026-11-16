@@ -31,13 +31,15 @@ export function createFirstAssistantCanceller({
 }) {
   if (!enabled) return undefined
   let cancelled = false
-  const handle = setIntervalFn(() => {
+  let handle
+  handle = setIntervalFn(() => {
     if (cancelled) return
     const hit = agent?.session?.events?.some(
       (event) => event.type === 'assistant/message' && (event.seq ?? 0) >= (firstSeq ?? 0),
     )
     if (hit) {
       cancelled = true
+      clearIntervalFn(handle)
       agent?.cancel?.({ kind: 'user' })
     }
   }, intervalMs)

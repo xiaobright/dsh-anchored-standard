@@ -69,6 +69,7 @@ test('enabled mode cancels once when a durable assistant message at/after firstS
   timers.fireAll()
   assert.equal(subject.calls.length, 1)
   assert.deepEqual(subject.calls[0], { kind: 'user' })
+  assert.equal(timers.timers.size, 0, 'a fired watcher must clear its own timer')
   stop.stop()
 })
 
