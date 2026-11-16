@@ -140,6 +140,34 @@ test('the hint registers with prepend', () => {
   assert.deepEqual(hookOptions['agent/pre-step'], { prepend: true })
 })
 
+test('a transiently unavailable fs service does not burn the one-shot hint', async () => {
+  const listeners = {}
+  let fsAvailable = false
+  const fs = {
+    async resolve(target) { return target },
+    async stat(target) {
+      const base = target.replace(/\\/g, '/').split('/').pop()
+      if (PROJ_FILES.includes(base)) return { type: 'file' }
+      throw new Error('ENOENT')
+    },
+  }
+  const ctx = {
+    on(event, callback) { listeners[event] = callback },
+    get(service) { return service === 'fs' && fsAvailable ? fs : undefined },
+    logger: { warn() {} },
+  }
+  apply(ctx, { promoteOn: 'either' })
+  const agent = { session: session([{ type: 'assistant/message', seq: 1, data: {} }]) }
+
+  const first = await listeners['agent/pre-step']({ agent }, async () => decision())
+  assert.equal(first.messages.length, 1)
+
+  fsAvailable = true
+  const second = await listeners['agent/pre-step']({ agent }, async () => decision())
+  assert.equal(second.messages.length, 2)
+  assert.equal(second.messages[1].source.kind, 'instruction-hint')
+})
+
 test('regression: AGENTS.md below the git root still gets hinted (chain probing)', async () => {
   // The observed failure mode: a session cwd nested below the git root
   // carried AGENTS.md while the root itself did not. Root-only probing

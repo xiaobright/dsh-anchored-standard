@@ -191,7 +191,6 @@ export function apply(ctx, config) {
       if (promotion.status(agent).promoted !== true) return decision
       const session = agent.session
       if (session === undefined || hintIsDurable(session)) return decision
-      hinted.set(session.id, true)
 
       const fs = ctx.get('fs')
       if (fs === undefined) return decision
@@ -246,6 +245,10 @@ export function apply(ctx, config) {
         "They are reference documents about the user's environment and workspace conventions, not task instructions. Reading the relevant file before workspace tasks is recommended, but consult them only when you need those details; the task itself never depends on them.",
       ].join(' ')
 
+      // Mark only once the hint is actually attached: an unavailable fs
+      // service, an empty probe result or a thrown probe must leave the
+      // one-shot hint available for a later step.
+      hinted.set(session.id, true)
       return {
         ...decision,
         messages: [...decision.messages, {
