@@ -155,3 +155,45 @@ test('invalid cadence values fail at apply time', () => {
   assert.throws(() => register({ every: -1 }), /every/)
   assert.throws(() => register({ maxPerTurn: 0 }), /maxPerTurn/)
 })
+
+test('parallel tool calls respect maxPerTurn', async () => {
+  const { listeners } = register({ every: 1, maxPerTurn: 1 })
+  const agent = makeAgent()
+  const calls = []
+  for (let i = 0; i < 3; i += 1) {
+    calls.push(listeners['tools/post-execute'](
+      {
+        name: 'bash',
+        arguments: { command: 'ls' },
+        agent,
+        callId: `c${i}`,
+        signal: new AbortController().signal,
+      },
+      { kind: 'accept', isError: false, value: {}, content: [] },
+      async () => {
+        await new Promise((resolve) => setTimeout(resolve, 10))
+        return { kind: 'accept' }
+      },
+    ))
+  }
+  const decisions = await Promise.all(calls)
+  assert.equal(
+    decisions.filter((decision) => decision.additionalContexts?.length).length,
+    1,
+  )
+})
+
+test('a failed injection does not consume the per-turn cap', async () => {
+  const { listeners } = register({ every: 1, maxPerTurn: 1 })
+  const agent = makeAgent()
+  const originalRandomUUID = crypto.randomUUID
+  crypto.randomUUID = () => { throw new Error('no entropy') }
+  try {
+    const first = await postexecute(listeners['tools/post-execute'], agent)
+    assert.equal(first.additionalContexts, undefined)
+  } finally {
+    crypto.randomUUID = originalRandomUUID
+  }
+  const second = await postexecute(listeners['tools/post-execute'], agent)
+  assert.equal(second.additionalContexts.length, 1)
+})

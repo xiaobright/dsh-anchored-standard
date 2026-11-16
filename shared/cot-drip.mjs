@@ -117,11 +117,18 @@ export function apply(ctx, config) {
       && every > 0
       && entry.results % every === 0
       && entry.drips < maxPerTurn
+    // Reserve the cap in the same synchronous block: every parallel call
+    // reaches here before any `await next()` resolves, so incrementing after
+    // the await lets each caller see drips=0 and pass the cap at once.
+    if (due) entry.drips += 1
 
     const decision = await next()
     try {
-      if (!due || decision?.kind !== 'accept') return decision
-      entry.drips += 1
+      if (decision?.kind !== 'accept') {
+        if (due) entry.drips -= 1
+        return decision
+      }
+      if (!due) return decision
       const notice = {
         id: `cot-drip-${crypto.randomUUID()}`,
         role: 'user',
@@ -138,6 +145,7 @@ export function apply(ctx, config) {
         additionalContexts: [...(decision.additionalContexts ?? []), notice],
       }
     } catch (error) {
+      if (due) entry.drips -= 1
       warnOnce(`${name}: drip injection failed, keeping the plain result: ${String((error && error.message) || error)}`)
       return decision
     }
