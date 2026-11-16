@@ -41,11 +41,18 @@ export function apply(ctx, config) {
     ? config.text
     : ANCHOR_TEXT
   const includeSubagents = config?.includeSubagents === true
+  // The inserted hook fires while a message is only queued, before it becomes
+  // a durable user/message event. Two user messages queued before the first
+  // turn would both look "fresh" and each seed an anchor, delaying the real
+  // message by an extra turn. Track anchored sessions so this stays one-shot.
+  const anchored = new WeakSet()
 
   ctx.on('agent/inbox/inserted', ({ agent, message }) => {
     if (!isFreshSession(agent, includeSubagents)) return
     // Never re-anchor on plugin-sourced messages (including our own anchor).
     if (message.source?.kind === 'plugin') return
+    if (anchored.has(agent.session)) return
+    anchored.add(agent.session)
     agent.inbox.prepend('next-turn', {
       id: crypto.randomUUID(),
       role: 'user',

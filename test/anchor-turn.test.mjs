@@ -90,3 +90,11 @@ test('subagents are anchored when includeSubagents is true', () => {
   assert.equal(prepends.length, 1)
   assert.equal(prepends[0].message.content[0].text, ANCHOR_TEXT)
 })
+
+test('two queued user messages before the first turn seed only one anchor', () => {
+  const listener = register()
+  const { subject, prepends } = agent()
+  listener({ agent: subject, message: { source: { kind: 'user' } } })
+  listener({ agent: subject, message: { source: { kind: 'user' } } })
+  assert.equal(prepends.length, 1)
+})
